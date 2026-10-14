@@ -87,8 +87,6 @@ function translateMessage(rawMessage) {
     return "今日已完成签到，请明天再试 🔁";
   } else if (msg.includes("please try tomorrow")) {
     return "签到已记录，请明天再试 🤖";
-  } else if (msg.includes("submarine cable data not ready")) {
-    return "节点海底光缆数据未就绪/请求过频，请稍后再试 ⚠️";
   } else if (msg.includes("automated check-in detected")) {
     return "触发官方风控拦截，请在浏览器重新登录后更新 Cookie ⚠️";
   } else if (msg.includes("not logged in") || msg.includes("cookie") || msg.includes("forbidden")) {
