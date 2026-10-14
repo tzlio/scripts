@@ -62,7 +62,7 @@ function getCookie() {
       try {
         const obj = JSON.parse(arg);
         if (obj.cookie) return obj.cookie.trim();
-      } catch (e) {}
+      } catch (e) { }
     }
     if (arg) return arg;
   }
@@ -73,7 +73,7 @@ function getCookie() {
 function translateMessage(rawMessage) {
   if (!rawMessage) return "无返回信息 ❓";
   const msg = String(rawMessage).toLowerCase();
-  
+
   if (msg.includes("today's observation logged") || msg.includes("return tomorrow")) {
     return "今日已完成签到，请明天再来！ 🔁";
   } else if (msg.includes("checkin! got") || (msg.includes("got ") && msg.includes("points"))) {
@@ -87,6 +87,8 @@ function translateMessage(rawMessage) {
     return "今日已完成签到，请明天再试 🔁";
   } else if (msg.includes("please try tomorrow")) {
     return "签到已记录，请明天再试 🤖";
+  } else if (msg.includes("submarine cable data not ready")) {
+    return "节点海底光缆数据未就绪/请求过频，请稍后再试 ⚠️";
   } else if (msg.includes("automated check-in detected")) {
     return "触发官方风控拦截，请在浏览器重新登录后更新 Cookie ⚠️";
   } else if (msg.includes("not logged in") || msg.includes("cookie") || msg.includes("forbidden")) {
@@ -105,7 +107,6 @@ function checkin() {
     return;
   }
 
-  const checkinUrl = "https://glados.cloud/api/user/checkin";
   const headers = {
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
@@ -116,30 +117,7 @@ function checkin() {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
   };
 
-  const body = JSON.stringify({ token: "glados.cloud" });
-
-  $httpClient.post({ url: checkinUrl, headers: headers, body: body }, (error, response, data) => {
-    if (error) {
-      console.log(`[GLaDOS] 签到网络请求失败: ${error}`);
-      $notification.post("GLaDOS 签到异常 ❌", "网络请求失败", `${error}`);
-      $done();
-      return;
-    }
-
-    let signMsg = "";
-    try {
-      const res = JSON.parse(data);
-      signMsg = translateMessage(res.message);
-    } catch (e) {
-      signMsg = `解析签到响应失败: ${data}`;
-    }
-
-    // 签到完成后查询账号状态
-    getStatus(headers, signMsg);
-  });
-}
-
-function getStatus(headers, signMsg) {
+  // 1. 先请求账号状态（相当于浏览器访问加载页面，完成 Session 初始化）
   const statusUrl = "https://glados.cloud/api/user/status";
   $httpClient.get({ url: statusUrl, headers: headers }, (error, response, data) => {
     let statusMsg = "";
@@ -161,6 +139,53 @@ function getStatus(headers, signMsg) {
       }
     }
 
+    // 2. 状态获取完成后，执行签到动作（支持自动降级重试）
+    executeSign(headers, email, statusMsg);
+  });
+}
+
+function executeSign(headers, email, statusMsg) {
+  const candidatePayloads = [
+    { url: "https://glados.cloud/api/user/checkin", token: "glados.cloud" },
+    { url: "https://glados.cloud/api/user/checkin", token: "glados.one" },
+    { url: "https://glados.rocks/api/user/checkin", token: "glados.one" }
+  ];
+
+  function tryPost(index) {
+    if (index >= candidatePayloads.length) {
+      finish("节点海底光缆数据未就绪/请求过频，请稍后再试 ⚠️");
+      return;
+    }
+
+    const item = candidatePayloads[index];
+    const postHeaders = Object.assign({}, headers, {
+      "Origin": item.url.startsWith("https://glados.rocks") ? "https://glados.rocks" : "https://glados.cloud",
+      "Referer": item.url.startsWith("https://glados.rocks") ? "https://glados.rocks/console/checkin" : "https://glados.cloud/console/checkin"
+    });
+    const body = JSON.stringify({ token: item.token });
+
+    $httpClient.post({ url: item.url, headers: postHeaders, body: body }, (error, response, data) => {
+      if (error) {
+        tryPost(index + 1);
+        return;
+      }
+
+      try {
+        const res = JSON.parse(data);
+        const rawMsg = res.message || "";
+        // 如果遇到光缆未就绪错误，尝试备用 Payload
+        if (rawMsg.toLowerCase().includes("submarine cable data not ready")) {
+          tryPost(index + 1);
+          return;
+        }
+        finish(translateMessage(rawMsg));
+      } catch (e) {
+        tryPost(index + 1);
+      }
+    });
+  }
+
+  function finish(signMsg) {
     const title = "GLaDOS 自动签到";
     const subTitle = email ? `${email} (${statusMsg})` : statusMsg;
     const detail = `${signMsg}`;
@@ -168,6 +193,9 @@ function getStatus(headers, signMsg) {
     console.log(`[GLaDOS] ${subTitle} - ${detail}`);
     $notification.post(title, subTitle, detail);
     $done();
-  });
+  }
+
+  tryPost(0);
 }
+
 
