@@ -109,15 +109,21 @@ function checkin() {
 
   const headers = {
     "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
     "Content-Type": "application/json;charset=UTF-8",
     "Cookie": cookie,
     "Origin": "https://glados.cloud",
     "Referer": "https://glados.cloud/console/checkin",
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+    "Sec-Ch-Ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
   };
 
-  // 1. 先请求账号状态（相当于浏览器访问加载页面，完成 Session 初始化）
+  // 1. 请求账号状态
   const statusUrl = "https://glados.cloud/api/user/status";
   $httpClient.get({ url: statusUrl, headers: headers }, (error, response, data) => {
     let statusMsg = "";
@@ -139,53 +145,28 @@ function checkin() {
       }
     }
 
-    // 2. 状态获取完成后，执行签到动作（支持自动降级重试）
+    // 2. 执行签到
     executeSign(headers, email, statusMsg);
   });
 }
 
 function executeSign(headers, email, statusMsg) {
-  const candidatePayloads = [
-    { url: "https://glados.cloud/api/user/checkin", token: "glados.cloud" },
-    { url: "https://glados.cloud/api/user/checkin", token: "glados.one" },
-    { url: "https://glados.rocks/api/user/checkin", token: "glados.one" }
-  ];
+  const checkinUrl = "https://glados.cloud/api/user/checkin";
+  const body = JSON.stringify({ token: "glados.cloud" });
 
-  function tryPost(index) {
-    if (index >= candidatePayloads.length) {
-      finish("节点海底光缆数据未就绪/请求过频，请稍后再试 ⚠️");
-      return;
-    }
-
-    const item = candidatePayloads[index];
-    const postHeaders = Object.assign({}, headers, {
-      "Origin": item.url.startsWith("https://glados.rocks") ? "https://glados.rocks" : "https://glados.cloud",
-      "Referer": item.url.startsWith("https://glados.rocks") ? "https://glados.rocks/console/checkin" : "https://glados.cloud/console/checkin"
-    });
-    const body = JSON.stringify({ token: item.token });
-
-    $httpClient.post({ url: item.url, headers: postHeaders, body: body }, (error, response, data) => {
-      if (error) {
-        tryPost(index + 1);
-        return;
-      }
-
+  $httpClient.post({ url: checkinUrl, headers: headers, body: body }, (error, response, data) => {
+    let signMsg = "";
+    if (error) {
+      signMsg = `网络请求失败: ${error}`;
+    } else {
       try {
         const res = JSON.parse(data);
-        const rawMsg = res.message || "";
-        // 如果遇到光缆未就绪错误，尝试备用 Payload
-        if (rawMsg.toLowerCase().includes("submarine cable data not ready")) {
-          tryPost(index + 1);
-          return;
-        }
-        finish(translateMessage(rawMsg));
+        signMsg = translateMessage(res.message);
       } catch (e) {
-        tryPost(index + 1);
+        signMsg = `解析响应失败: ${data}`;
       }
-    });
-  }
+    }
 
-  function finish(signMsg) {
     const title = "GLaDOS 自动签到";
     const subTitle = email ? `${email} (${statusMsg})` : statusMsg;
     const detail = `${signMsg}`;
@@ -193,9 +174,7 @@ function executeSign(headers, email, statusMsg) {
     console.log(`[GLaDOS] ${subTitle} - ${detail}`);
     $notification.post(title, subTitle, detail);
     $done();
-  }
-
-  tryPost(0);
+  });
 }
 
 
