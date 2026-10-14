@@ -1,0 +1,21 @@
+#!name=GLaDOS 自动签到
+#!desc=GLaDOS 自动签到与 Cookie 自动提取插件。在 Safari 中登录/访问 glados.cloud 即可自动获取并持久化保存 Cookie，无需手动填写。
+#!openUrl=https://glados.cloud/console/checkin
+#!author=tzlio
+#!homepage=https://github.com/tzlio/scripts
+
+[Argument]
+cron=input, "5 0 * * *", tag=定时签到时间, desc=Cron 表达式，默认每天凌晨 00:05 运行
+cookie=input, "", tag=备用手动Cookie, desc=若不使用自动提取，可在此手动填写（留空则优先使用自动提取的持久化Cookie）
+
+[MITM]
+hostname=glados.cloud
+
+[Script]
+# 1. 打开或登录网页时自动捕获并持久化保存 Cookie（匹配所有以 https://glados.cloud/console 开头的网址）
+http-request ^https?:\/\/glados\.cloud\/console script-path=https://raw.githubusercontent.com/tzlio/scripts/refs/heads/main/Loon/plugin/GLaDOS/glados.js, requires-body=false, tag=GLaDOS 自动获取Cookie
+
+# 2. 每天定时执行自动签到任务
+cron {cron} script-path=https://raw.githubusercontent.com/tzlio/scripts/refs/heads/main/Loon/plugin/GLaDOS/glados.js, tag=GLaDOS 自动签到, timeout=60, argument=[{cookie}]
+
+
