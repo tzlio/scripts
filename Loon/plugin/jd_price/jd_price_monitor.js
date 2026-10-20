@@ -218,8 +218,6 @@ async function cronTask() {
     $.setjson(records, store_records_key);
 }
 
-// ===================== 以下代码 100% 与你 2:08PM 验证版完全一致，一字未动 =====================
-
 // 返回结果检查函数
 function checkRes(res, desc = '') {
     if (res.ok !== 1) {
