@@ -15,7 +15,7 @@
 request if ${url} ~= /^https?:\/\/apapia-sqk-weblogic\.manmanbuy\.com\/baoliao\/center\/menu$/i then script("https://raw.githubusercontent.com/tzlio/scripts/refs/heads/main/Loon/plugin/jd_price/jd_price_monitor.js") with tag="慢慢买捕获令牌", timeout=10, requires_body=true
 
 # 2. 按钮点击本地即刻 Mock 响应（必须是 request，手机本地毫秒返回，不走外网）
-request if ${url} ~= /^https:\/\/in\.m\.jd\.com\/jd_monitor_toggle/ then script("jd_price.js") with tag="京东监控切换"
+request if ${url} ~= /^https:\/\/in\.m\.jd\.com\/jd_monitor_toggle/ then script("https://raw.githubusercontent.com/tzlio/scripts/refs/heads/main/Loon/plugin/jd_price/jd_price_monitor.js") with tag="京东监控切换"
 
 # 3. 京东详情页交互（注入监控胶囊 + 处理点击事件）
 response if ${url} ~= /^https?:\/\/in\.m\.jd\.com\/product\/graphext\/\d+\.html/i then script("https://raw.githubusercontent.com/tzlio/scripts/refs/heads/main/Loon/plugin/jd_price/jd_price_monitor.js") with tag="京东详情页监控助手", timeout=10, requires_body=true
