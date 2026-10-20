@@ -1,377 +1,376 @@
-/**
- * 京东比价 + 最低价监控 (还原原版表格 + 嵌入一键监控按钮)
- */
+/*
+脚本引用 https://raw.githubusercontent.com/githubdulong/Script/master/jd_price.js
+已对齐 2025-05-15 接口标准，并集成：表格监控按钮 + 最低价自动记录与定时破底价通知
+*/
+const path1 = '/product/graphext/';
+const path2 = '/baoliao/center/menu';
+const path_toggle = 'jd_monitor_toggle';
+const manmanbuy_key = 'manmanbuy_val';
+const store_records_key = 'JD_LOWEST_PRICE_RECORDS';
 
-const CK_KEY = "manmanbuy_val";
-const STORE_KEY = "JD_LOWEST_PRICE_RECORDS";
+const $ = new Env("京东比价");
+const url = typeof $request !== "undefined" ? $request.url : "";
+
+//【V1】请求3次 次新接口 【V2】请求4次 最新接口
+$.version = $.getdata('mmb_v') || 'V1';
 
 (async () => {
-  // 1. 定时巡检破底价任务 (Cron)
-  if (typeof $request === "undefined") {
-    await runCronTask();
-    $done();
-    return;
-  }
-
-  const url = $request.url;
-
-  // 2. 抓取慢慢买完整 CK
-  if (url.includes("/baoliao/center/menu")) {
-    if ($request.body) {
-      $persistentStore.write($request.body, CK_KEY);
-      $notification.post("京东比价助手", "获取ck成功🎉", "已成功保存慢慢买完整凭据");
+    // 场景 1: 定时巡检任务 (Cron)
+    if (typeof $request === "undefined") {
+        await cronTask();
+        $.done();
+        return;
     }
-    $done({});
-    return;
-  }
 
-  // 3. 点击按钮交互（添加 / 取消监控）
-  if (url.includes("jd_monitor_toggle")) {
-    handleToggleAction(url);
-    return;
-  }
+    // 场景 2: 抓取完整 CK
+    if (url.includes(path2)) {
+        const reqbody = $request.body;
+        $.setdata(reqbody, manmanbuy_key);
+        $.msg($.name, '获取ck成功🎉', '已成功保存慢慢买完整凭据');
+        $.done({});
+        return;
+    }
 
-  // 4. 详情页渲染：渲染原版表格 + 注入监控按钮
-  if (url.includes("/product/graphext/")) {
-    await handleDetailPage(url);
-    return;
-  }
+    // 场景 3: 页面按钮一键加入/取消监控
+    if (url.includes(path_toggle)) {
+        handleToggle(url);
+        return;
+    }
 
-  $done({});
+    // 场景 4: 详情页注入红白比价表格与按钮
+    if (url.includes(path1)) {
+        const responseBody = $response?.body;
+        main()
+            .then(res => $done(res || { body: responseBody }))
+            .catch(err => {
+                const html = `<div style="max-width: 90%;margin: 20px auto;padding: 16px;background: #ffffff;color: #d32f2f;border: 2px solid #f44336;border-radius: 12px;font-size: 16px;text-align:left;box-shadow: 0 2px 6px rgba(0,0,0,0.06);"><strong>${err.message}</strong></div>`;
+                $done({
+                    body: responseBody.replace("<body>", `<body>${html}`)
+                });
+            });
+    }
 })();
 
-// ===================== 详情页处理 & 表格渲染 =====================
-async function handleDetailPage(url) {
-  const responseBody = $response?.body || "";
-  try {
+// ===================== 详情页逻辑 =====================
+async function main() {
+    intCryptoJS();
+
     const match = url.match(/product\/graphext\/(\d+)\.html/);
-    if (!match) throw new Error("URL匹配失败");
+    if (!match) throw new Error("京东URL匹配失败");
     const skuId = match[1];
 
-    // 获取慢慢买比价数据
-    const { list, curPrice } = await getPriceDetail(skuId);
+    const JD_Url = `https://item.jd.com/${skuId}.html`;
+    const responseBody = $response?.body;
 
-    // 查询当前商品是否在监控列表
-    const records = JSON.parse($persistentStore.read(STORE_KEY) || "{}");
+    const version = $.version || "V1";
+    let link = JD_Url, stteId;
+
+    if (version === "V2") {
+        const parse = checkRes(await get_stteId(JD_Url), '获取stteId [V2]');
+        link = parse?.result?.link;
+        stteId = parse?.result?.stteId;
+    }
+    const basic = checkRes(await get_spbh(link, stteId, version), '获取 spbh [V1/V2]');
+    const jiagequshi = checkRes(await get_jiagequshi(basic?.result?.url, basic?.result?.spbh), '获取价格趋势');
+    const trend = checkRes(await get_priceRemark(jiagequshi?.result?.trend), '价格备注');
+    const ListPriceDetail = trend?.remark?.ListPriceDetail || [];
+    const exclude = new Set(['当前到手价', '历史最低价', '618价格', '双11价格', '30天最低价', '60天最低价', '180天最低价']);
+    const list = ListPriceDetail.filter(i => exclude.has(i.Name));
+
+    // 提取当前价与监控状态
+    const curItem = ListPriceDetail.find(i => i.Name === '当前到手价' || i.ShowName?.includes('当前')) || list[0];
+    const curPrice = parseFloat(curItem?.Price || '0');
+    const records = $.getjson(store_records_key) || {};
     const isMonitored = !!records[skuId];
     const recordLowest = records[skuId]?.lowest || curPrice;
 
-    // 生成原版表格 HTML（并附带监控按钮）
+    // 渲染带有监控按钮的比价表格
     const html = Price_HTML(list, skuId, curPrice, isMonitored, recordLowest);
-
-    // 替换并注入页面
-    const body = responseBody.includes("<body>")
-      ? responseBody.replace("<body>", `<body>${html}`)
-      : responseBody.replace(/<body[^>]*>/i, (m) => `${m}\n${html}`);
-
-    $done({ body });
-  } catch (err) {
-    console.log("比价渲染失败: " + err.message);
-    const errHtml = `<div style="max-width:90%;margin:15px auto;padding:12px;background:#fff2f0;color:#d32f2f;border:1px solid #ffccc7;border-radius:10px;font-size:13px;"><strong>慢慢买提示：${err.message}</strong></div>`;
-    const body = responseBody.replace("<body>", `<body>${errHtml}`);
-    $done({ body });
-  }
+    const body = responseBody.replace("<body>", `<body>${html}`);
+    return { body };
 }
 
-// 原版比价表格生成函数（加入了一键监控按钮）
+// 比价 HTML (保留原版样式并在右上角嵌入监控按钮)
 function Price_HTML(priceList, skuId, curPrice, isMonitored, recordLowest) {
-  const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split("T")[0];
+    const rows = priceList.map(item => {
+        let { Name: name, Date: date, Price: price = '', Difference: diff = '' } = item;
+        if (name === '当前到手价') {
+            date = $.time('yyyy-MM-dd');
+            diff = '仅供参考';
+        } else {
+            date = date || '-';
+        }
+        let diffClass = '';
+        if (diff.startsWith('↑')) diffClass = 'up';
+        else if (diff.startsWith('↓')) diffClass = 'down';
+        return `<tr><td>${name}</td><td>${date}</td><td>${price}</td><td class="price-diff ${diffClass}">${diff}</td></tr>`;
+    }).join('');
 
-  const rows = priceList
-    .map((item) => {
-      let { Name: name, Date: date, Price: price = "", Difference: diff = "" } = item;
-      if (name === "当前到手价") {
-        date = today;
-        diff = "仅供参考";
-      } else {
-        date = date || "-";
-      }
-      let diffClass = "";
-      if (diff.startsWith("↑")) diffClass = "up";
-      else if (diff.startsWith("↓")) diffClass = "down";
-      return `<tr><td>${name}</td><td>${date}</td><td>${price}</td><td class="price-diff ${diffClass}">${diff}</td></tr>`;
-    })
-    .join("");
-
-  return `
+    return `
     <div class="price-container">
-      <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 4px 10px;">
-        <div>
-          <span style="font-size: 15px; color: #e61a23; font-weight: bold;">📊 历史比价</span>
-          <span style="font-size: 11px; color: #888; margin-left: 6px;">${isMonitored ? `(当前记录底价: ¥${recordLowest})` : ""}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 4px 10px;">
+            <div>
+                <span style="font-size:15px;color:#e61a23;font-weight:bold;">📊 历史比价</span>
+                <span style="font-size:11px;color:#888;margin-left:6px;">${isMonitored ? `(记录底价: ¥${recordLowest})` : ''}</span>
+            </div>
+            <button id="jd-btn" onclick="toggle('${skuId}', ${curPrice})" style="background:${isMonitored ? '#52c41a' : '#e61a23'};color:#fff;border:none;padding:6px 12px;border-radius:14px;font-size:12px;font-weight:bold;cursor:pointer;">
+                ${isMonitored ? '✓ 监控中 (点击取消)' : '➕ 监控此商品最低价'}
+            </button>
         </div>
-        <button id="jd-btn" onclick="toggle('${skuId}', ${curPrice})" style="background: ${isMonitored ? "#52c41a" : "#e61a23"}; color: #fff; border: none; padding: 6px 12px; border-radius: 14px; font-size: 12px; font-weight: bold; cursor: pointer;">
-          ${isMonitored ? "✓ 监控中 (点击取消)" : "➕ 监控此商品最低价"}
-        </button>
-      </div>
-      <table class="price-table">
-        <thead><tr><th>类型</th><th>日期</th><th>价格</th><th>差价</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+        <table class="price-table">
+            <thead><tr><th>类型</th><th>日期</th><th>价格</th><th>差价</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
     </div>
     <style>
-      body, table { font-family: "PingFang SC","Microsoft YaHei","Helvetica Neue",Helvetica,Arial,sans-serif; }
-      .price-container { max-width: 800px; margin: 10px auto; padding: 12px; font-size: 13px; font-weight: bold; background: #FFF9F9; color: #333; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-      .price-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 8px; overflow: hidden; }
-      .price-table th { background: #e61a23; color: #fff; padding: 10px; text-align: left; font-weight: bold; }
-      .price-table td { padding: 10px; border-bottom: 1px solid #EEE; font-weight: bold; }
-      .price-diff.up { color: #C91623; font-weight: bold; }
-      .price-diff.down { color: #00aa00; font-weight: bold; }
+        body,table{font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",Helvetica,Arial,sans-serif;}
+        .price-container{max-width:800px;margin:10px auto;padding:10px;font-size:13px;font-weight:bold;background:#FFF9F9;color:#333;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);}
+        .price-table{width:100%;border-collapse:separate;border-spacing:0;border-radius:8px;overflow:hidden;}
+        .price-table th{background:#e61a23;color:#fff;padding:12px;text-align:left;font-weight:bold;}
+        .price-table td{padding:12px;border-bottom:1px solid #EEE;font-weight:bold;}
+        .price-diff.up{color:#C91623;font-weight:bold;}
+        .price-diff.down{color:#00aa00;font-weight:bold;}
     </style>
     <script>
-      function toggle(s, p) {
-        const btn = document.getElementById('jd-btn');
-        btn.innerText = '提交中...';
-        fetch('https://in.m.jd.com/jd_monitor_toggle?sku=' + s + '&price=' + p)
-          .then(r => r.json())
-          .then(d => {
-            if (d.action === 'added') {
-              btn.style.background = '#52c41a';
-              btn.innerText = '✓ 监控中 (点击取消)';
-            } else {
-              btn.style.background = '#e61a23';
-              btn.innerText = '➕ 监控此商品最低价';
-            }
-          })
-          .catch(() => alert('操作超时，请重试'));
-      }
-    </script>
-  `;
+        function toggle(s, p) {
+            const btn = document.getElementById('jd-btn');
+            btn.innerText = '提交中...';
+            fetch('https://in.m.jd.com/jd_monitor_toggle?sku=' + s + '&price=' + p)
+                .then(r => r.json())
+                .then(d => {
+                    if (d.action === 'added') {
+                        btn.style.background = '#52c41a';
+                        btn.innerText = '✓ 监控中 (点击取消)';
+                    } else {
+                        btn.style.background = '#e61a23';
+                        btn.innerText = '➕ 监控此商品最低价';
+                    }
+                })
+                .catch(() => alert('操作超时，请重试'));
+        }
+    </script>`;
 }
 
-// ===================== 按钮交互处理 =====================
-function handleToggleAction(url) {
-  const sku = url.match(/sku=(\d+)/)?.[1];
-  const price = parseFloat(url.match(/price=([0-9.]+)/)?.[1] || "0");
+// 按钮动作响应
+function handleToggle(url) {
+    const sku = url.match(/sku=(\d+)/)?.[1];
+    const price = parseFloat(url.match(/price=([0-9.]+)/)?.[1] || "0");
+    let records = $.getjson(store_records_key) || {};
+    let action = "";
 
-  let records = JSON.parse($persistentStore.read(STORE_KEY) || "{}");
-  let action = "";
+    if (records[sku]) {
+        delete records[sku];
+        action = "removed";
+    } else {
+        records[sku] = { lowest: price, time: Date.now() };
+        action = "added";
+        $.msg($.name, '📌 已加入降价监控', `商品 ID: ${sku}，基准底价: ¥${price}`);
+    }
 
-  if (records[sku]) {
-    delete records[sku];
-    action = "removed";
-  } else {
-    records[sku] = { lowest: price, time: Date.now() };
-    action = "added";
-    notify("📌 已加入降价监控", `商品 ID: ${sku}`, `基准底价设为: ¥${price}，创新低时将通知`, sku);
-  }
-
-  $persistentStore.write(JSON.stringify(records), STORE_KEY);
-
-  $done({
-    response: {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: 200, action, lowest: records[sku]?.lowest }),
-    },
-  });
+    $.setjson(records, store_records_key);
+    $done({
+        response: {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: 200, action, lowest: records[sku]?.lowest })
+        }
+    });
 }
 
 // ===================== 定时巡检任务 (Cron) =====================
-async function runCronTask() {
-  const records = JSON.parse($persistentStore.read(STORE_KEY) || "{}");
-  const skuList = Object.keys(records);
+async function cronTask() {
+    intCryptoJS();
+    const records = $.getjson(store_records_key) || {};
+    const skuList = Object.keys(records);
 
-  if (skuList.length === 0) {
-    console.log("当前无监控商品。在商品详情页比价表格上方点击按钮即可添加。");
-    return;
-  }
-
-  console.log(`[定时巡检] 开始检查 ${skuList.length} 件监控商品...`);
-
-  for (const skuId of skuList) {
-    try {
-      const { curPrice } = await getPriceDetail(skuId);
-      const item = records[skuId];
-
-      if (curPrice < item.lowest) {
-        const drop = (item.lowest - curPrice).toFixed(2);
-        const oldLowest = item.lowest;
-        item.lowest = curPrice;
-
-        notify(
-          `🎉 京东破底价: 商品 ${skuId}`,
-          `现价 ¥${curPrice}（降幅 -¥${drop}）`,
-          `原低价 ¥${oldLowest} ➡️ 最新底价 ¥${curPrice}。点击直达购买`,
-          skuId
-        );
-        console.log(`[创新低] ${skuId}: ¥${oldLowest} -> ¥${curPrice}`);
-      } else {
-        console.log(`[未创新低] ${skuId}: 现价 ¥${curPrice}, 最低 ¥${item.lowest}`);
-      }
-
-      await new Promise((r) => setTimeout(r, 1500));
-    } catch (err) {
-      console.log(`[巡检异常] ${skuId}: ${err.message}`);
+    if (!skuList.length) {
+        $.log('当前无监控商品。在商品详情页比价表格上方点击按钮即可添加。');
+        return;
     }
-  }
 
-  $persistentStore.write(JSON.stringify(records), STORE_KEY);
+    $.log(`[定时巡检] 开始检查 ${skuList.length} 件监控商品...`);
+    const version = $.version || "V1";
+
+    for (const skuId of skuList) {
+        try {
+            const JD_Url = `https://item.jd.com/${skuId}.html`;
+            let link = JD_Url, stteId;
+
+            if (version === "V2") {
+                const parse = checkRes(await get_stteId(JD_Url), '获取stteId [V2]');
+                link = parse?.result?.link;
+                stteId = parse?.result?.stteId;
+            }
+
+            const basic = checkRes(await get_spbh(link, stteId, version), '获取 spbh');
+            const jiagequshi = checkRes(await get_jiagequshi(basic?.result?.url, basic?.result?.spbh), '获取价格趋势');
+            const trend = checkRes(await get_priceRemark(jiagequshi?.result?.trend), '价格备注');
+            const ListPriceDetail = trend?.remark?.ListPriceDetail || [];
+
+            const curItem = ListPriceDetail.find(i => i.Name === '当前到手价' || i.ShowName?.includes('当前')) || ListPriceDetail[0];
+            const curPrice = parseFloat(curItem?.Price || '0');
+            const item = records[skuId];
+
+            if (curPrice && curPrice < item.lowest) {
+                const drop = (item.lowest - curPrice).toFixed(2);
+                const oldLowest = item.lowest;
+                item.lowest = curPrice; // 更新记录的最新最低价
+
+                $.msg(
+                    `🎉 京东破底价: ${skuId}`,
+                    `现价 ¥${curPrice} (降幅 -¥${drop})`,
+                    `原底价 ¥${oldLowest} ➡️ 最新底价 ¥${curPrice}，点击直达`,
+                    { openUrl: `openapp.jdmobile://virtual?params={"category":"jump","des":"productDetail","skuId":"${skuId}"}` }
+                );
+                $.log(`[创新低] ${skuId}: ¥${oldLowest} -> ¥${curPrice}`);
+            } else {
+                $.log(`[未创新低] ${skuId}: 现价 ¥${curPrice}, 记录最低 ¥${item.lowest}`);
+            }
+
+            await $.wait(1500);
+        } catch (err) {
+            $.logErr(`[巡检异常] ${skuId}: ${err.message || err}`);
+        }
+    }
+
+    $.setjson(records, store_records_key);
 }
 
-// ===================== 慢慢买数据请求链路 =====================
-async function getPriceDetail(skuId) {
-  const jdUrl = `https://item.jd.com/${skuId}.html`;
-
-  // 1. 获取 stteId (V2)
-  let link = jdUrl, stteId = null;
-  try {
-    const parse = await mmbRequest(
-      { methodName: "commonMethod", searchKey: jdUrl, scene: "TrendHomeUnInput", c_ctrl: "Tabs" },
-      "https://apapia-common.manmanbuy.com/SiteCommand/parse"
-    );
-    if (parse?.ok === 1 && parse?.result?.stteId) {
-      link = parse.result.link || jdUrl;
-      stteId = parse.result.stteId;
+// ===================== 对齐原版请求函数 =====================
+function checkRes(res, desc = '') {
+    if (res.ok !== 1) {
+        $.log('慢慢买提示您：' + $.toStr(res));
+        throw new Error(`慢慢买提示您：${res.msg || `${desc}失败`}`);
     }
-  } catch (e) {}
-
-  // 2. 获取 spbh
-  const base = "https://apapia-history-weblogic.manmanbuy.com/basic";
-  const basicUrl = stteId ? `${base}/v2/getItemBasicInfo` : `${base}/getItemBasicInfo`;
-  const basic = await mmbRequest(
-    { methodName: "getHistoryInfoJava", searchKey: link, c_ctrl: "Tabs", ...(stteId && { stteId }) },
-    basicUrl
-  );
-  if (basic?.ok !== 1 || !basic?.result?.spbh) throw new Error(basic?.msg || "获取商品SPBH失败");
-
-  // 3. 获取价格趋势
-  const trend = await mmbRequest(
-    {
-      methodName: "getHistoryTrend2021",
-      url: basic.result.url,
-      spbh: basic.result.spbh,
-      c_ctrl: "TrendDetailScene",
-      callPos: "trend_detail",
-      currentScene: "TrendDetailRecent",
-      eventName: "查询商品历史价格",
-      pagecFrom: "TrendHomeUnInput",
-      chartStyleTest: "testA",
-    },
-    "https://apapia-history-weblogic.manmanbuy.com/history/v2/getHistoryTrend"
-  );
-  if (trend?.ok !== 1 || !trend?.result?.trend) throw new Error(trend?.msg || "获取价格趋势失败");
-
-  // 4. 价格备注
-  const remark = await mmbRequest(
-    { methodName: "priceRemarkJava", jiagequshiyh: trend.result.trend, c_ctrl: "TrendDetailScene" },
-    "https://apapia-history-weblogic.manmanbuy.com/history/priceRemark"
-  );
-  if (remark?.ok !== 1) throw new Error(remark?.msg || "获取价格明细失败");
-
-  const ListPriceDetail = remark.remark?.ListPriceDetail || [];
-  const exclude = new Set(["当前到手价", "历史最低价", "618价格", "双11价格", "30天最低价", "60天最低价", "180天最低价"]);
-  const list = ListPriceDetail.filter((i) => exclude.has(i.Name));
-
-  const curItem = ListPriceDetail.find((i) => i.Name === "当前到手价" || i.ShowName?.includes("当前")) || list[0];
-  const curPrice = parseFloat(curItem?.Price || "0");
-
-  return { list, curPrice };
+    return res;
 }
 
-// 封装发送请求
-async function mmbRequest(params, url) {
-  const rawBody = $persistentStore.read(CK_KEY);
-  if (!rawBody) throw new Error("请先打开【慢慢买】APP，点击【我的】获取CK");
-
-  const baseParams = {};
-  rawBody.split("&").forEach((pair) => {
-    const [k, v] = pair.split("=");
-    if (k) baseParams[decodeURIComponent(k)] = decodeURIComponent(v || "");
-  });
-  ["c_ctrl", "methodName", "level", "t", "token"].forEach((k) => delete baseParams[k]);
-
-  const requestBody = { ...baseParams, ...params, t: Date.now().toString() };
-  const SECRET_KEY = "3E41D1331F5DDAFCD0A38FE2D52FF66F";
-
-  const customStr = Object.keys(requestBody)
-    .filter((k) => requestBody[k] !== "" && k.toLowerCase() !== "token")
-    .sort()
-    .map((k) => `${k.toUpperCase()}${String(requestBody[k]).toUpperCase()}`)
-    .join("");
-
-  requestBody.token = md5(encodeURIComponent(SECRET_KEY + customStr + SECRET_KEY)).toUpperCase();
-
-  const body = Object.keys(requestBody)
-    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(requestBody[k])}`)
-    .join("&");
-
-  return new Promise((resolve, reject) => {
-    $httpClient.post(
-      {
+async function mmbRequest(Params, url) {
+    if (!$.manmanbuy) {
+        $.manmanbuy = getck();
+    }
+    let payloadStr;
+    if (typeof Params === 'string') {
+        payloadStr = Params;
+    } else {
+        const SECRET_KEY = '3E41D1331F5DDAFCD0A38FE2D52FF66F';
+        const requestBody = {
+            ...$.manmanbuy,
+            ...Params,
+            t: Date.now().toString()
+        };
+        requestBody.token = md5(encodeURIComponent(SECRET_KEY + jsonToCustomString(requestBody) + SECRET_KEY)).toUpperCase();
+        payloadStr = jsonToQueryString(requestBody);
+    }
+    const opt = {
         url,
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_6_1 like Mac OS X) AppleWebKit/605.1.15",
+            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 - mmbWebBrowse - ios"
         },
-        body,
-      },
-      (err, resp, data) => {
-        if (err) return reject(new Error(err));
-        try {
-          resolve(JSON.parse(data));
-        } catch {
-          resolve(data);
-        }
-      }
-    );
-  });
+        body: payloadStr
+    };
+    return await httpRequest(opt);
 }
 
-function notify(title, subtitle, body, skuId) {
-  const jumpUrl = `openapp.jdmobile://virtual?params={"category":"jump","des":"productDetail","skuId":"${skuId}"}`;
-  $notification.post(title, subtitle, body, { openUrl: jumpUrl });
+function get_stteId(searchKey) {
+    const url = 'https://apapia-common.manmanbuy.com/SiteCommand/parse';
+    const payload = {
+        methodName: "commonMethod",
+        searchKey
+    };
+    return mmbRequest(payload, url);
 }
 
-// 极简 MD5
-function md5(string) {
-  function R(A, B) { return (A << B) | (A >>> (32 - B)); }
-  function C(q, a, b, x, s, t) { return ((q = q + a + x + t) << s | q >>> (32 - s)) + b; }
-  function F(a, b, c, d, x, s, t) { return C((b & c) | (~b & d), a, b, x, s, t); }
-  function G(a, b, c, d, x, s, t) { return C((b & d) | (c & ~d), a, b, x, s, t); }
-  function H(a, b, c, d, x, s, t) { return C(b ^ c ^ d, a, b, x, s, t); }
-  function I(a, b, c, d, x, s, t) { return C(c ^ (b | ~d), a, b, x, s, t); }
-  let x = Array(string.length);
-  for (let i = 0; i < string.length; i++) x[i >> 2] |= (string.charCodeAt(i) & 255) << ((i % 4) * 8);
-  let l = string.length * 8;
-  x[l >> 5] |= 128 << (l % 32);
-  x[(((l + 64) >>> 9) << 4) + 14] = l;
-  let a = 1732584193, b = -271733879, c = -1732584194, d = 271733878;
-  for (let i = 0; i < x.length; i += 16) {
-    let [A, B, C, D] = [a, b, c, d];
-    a = F(a, b, c, d, x[i + 0], 7, -680876936); d = F(d, a, b, c, x[i + 1], 12, -389564586);
-    c = F(c, d, a, b, x[i + 2], 17, 606105819); b = F(b, c, d, a, x[i + 3], 22, -1044525330);
-    a = F(a, b, c, d, x[i + 4], 7, -176418897); d = F(d, a, b, c, x[i + 5], 12, 1200080426);
-    c = F(c, d, a, b, x[i + 6], 17, -1473231341); b = F(b, c, d, a, x[i + 7], 22, -45705983);
-    a = F(a, b, c, d, x[i + 8], 7, 1770035416); d = F(d, a, b, c, x[i + 9], 12, -1958414417);
-    c = F(c, d, a, b, x[i + 10], 17, -42063); b = F(b, c, d, a, x[i + 11], 22, -1990404162);
-    a = F(a, b, c, d, x[i + 12], 7, 1804603682); d = F(d, a, b, c, x[i + 13], 12, -40341101);
-    c = F(c, d, a, b, x[i + 14], 17, -1502000000); b = F(b, c, d, a, x[i + 15], 22, 1236535329);
-    a = G(a, b, c, d, x[i + 1], 5, -165796510); d = G(d, a, b, c, x[i + 6], 9, -1069501632);
-    c = G(c, d, a, b, x[i + 11], 14, 643717713); b = G(b, c, d, a, x[i + 0], 20, -373897302);
-    a = G(a, b, c, d, x[i + 5], 5, -701558691); d = G(d, a, b, c, x[i + 10], 9, 38016083);
-    c = G(c, d, a, b, x[i + 15], 14, -660478335); b = G(b, c, d, a, x[i + 4], 20, -405537848);
-    a = G(a, b, c, d, x[i + 9], 5, 568446438); d = G(d, a, b, c, x[i + 14], 9, -1019803690);
-    c = G(c, d, a, b, x[i + 3], 14, -187363961); b = G(b, c, d, a, x[i + 8], 20, 1163531501);
-    a = G(a, b, c, d, x[i + 13], 5, -1444681467); d = G(d, a, b, c, x[i + 2], 9, -51403784);
-    c = G(c, d, a, b, x[i + 7], 14, 1735328473); b = G(b, c, d, a, x[i + 12], 20, -1926607734);
-    a = H(a, b, c, d, x[i + 5], 4, -378558); d = H(d, a, b, c, x[i + 8], 11, -2022574463);
-    c = H(c, d, a, b, x[i + 11], 16, 1839030562); b = H(b, c, d, a, x[i + 14], 23, -35309556);
-    a = H(a, b, c, d, x[i + 1], 4, -1530992060); d = H(d, a, b, c, x[i + 4], 11, 1272893353);
-    c = H(c, d, a, b, x[i + 7], 16, -155497632); b = H(b, c, d, a, x[i + 10], 23, -1094730640);
-    a = H(a, b, c, d, x[i + 13], 4, 681279174); d = H(d, a, b, c, x[i + 0], 11, -358537222);
-    c = H(c, d, a, b, x[i + 3], 16, -722521979); b = H(b, c, d, a, x[i + 6], 23, 76029189);
-    a = H(a, b, c, d, x[i + 9], 4, -640364487); d = H(d, a, b, c, x[i + 12], 11, -421815835);
-    c = H(c, d, a, b, x[i + 15], 16, 530742520); b = H(b, c, d, a, x[i + 2], 23, -995338651);
-    a = I(a, b, c, d, x[i + 0], 6, -198630844); d = I(d, a, b, c, x[i + 7], 10, 1126891415);
-    c = I(c, d, a, b, x[i + 14], 15, -1416354905); b = I(d, a, b, c, x[i + 5], 21, -57434055);
-    a = I(a, b, c, d, x[i + 12], 6, 1700485571); d = I(d, a, b, c, x[i + 3], 10, -1894986606);
-    c = I(c, d, a, b, x[i + 10], 15, -1051523); b = I(b, c, d, a, x[i + 1], 21, -2054922799);
-    a = I(a, b, c, d, x[i + 8], 6, 1873313359); d = I(d, a, b, c, x[i + 15], 10, -30611744);
-    c = I(c, d, a, b, x[i + 6], 15, -1560198380); b = I(b, c, d, a, x[i + 13], 21, 1309151649);
-    a = I(a, b, c, d, x[i + 4], 6, -145523070); d = I(d, a, b, c, x[i + 11], 10, -1120210379);
-    c = I(c, d, a, b, x[i + 2], 15, 718787259); b = I(b, c, d, a, x[i + 9], 21, -343485551);
-    a = (a + A) | 0; b = (b + B) | 0; c = (c + C) | 0; d = (d + D) | 0;
-  }
-  return [a, b, c, d].map((n) => (n < 0 ? n + 4294967296 : n).toString(16).padStart(8, "0").match(/../g).reverse().join("")).join("");
+function get_spbh(link, stteId, version) {
+    const base = 'https://apapia-history-weblogic.manmanbuy.com/basic';
+    const url = version === "V2"
+        ? `${base}/v2/getItemBasicInfo`
+        : `${base}/getItemBasicInfo`;
+    const payload = {
+        methodName: "getHistoryInfoJava",
+        searchKey: link,
+        ...(version === "V2" && {stteId})
+    };
+    return mmbRequest(payload, url);
 }
+
+function get_jiagequshi(link, spbh) {
+    const url = "https://apapia-history-weblogic.manmanbuy.com/history/v2/getHistoryTrend";
+    const payload = {
+        methodName: "getHistoryTrend2021",
+        url: link,
+        spbh: spbh
+    };
+    return mmbRequest(payload, url);
+}
+
+function get_priceRemark(jiagequshiyh) {
+    const url = "https://apapia-history-weblogic.manmanbuy.com/history/priceRemark";
+    const payload = {
+        "methodName": "priceRemarkJava",
+        "jiagequshiyh": jiagequshiyh
+    };
+    const res = mmbRequest(payload, url);
+    return res;
+}
+
+// 提前加载部分ck,避免多次生成 (完全对齐原版)
+function int_ck(Params){
+    const baseParams = {jsoncallback: "?", c_individ: "", c_appver: "", c_ostype: "", c_osver: "", c_devid: "", c_mmbDevId: "", c_systemDevId: "", c_fixDevId: "", c_devmodel: "", c_brand: "", c_operator: "", c_engine: "", c_session: "", c_ddToken: "", c_ctrl: "", c_win: "", c_dp: "", c_safearea: "", c_firstchannel: "", c_firstquerendate: "", c_fristversion: "", c_channel: "", c_uuid: "", c_ssid: "", c_did: "", c_theme: "", c_jpush: "", c_mmbncid: "", sm_deviceid: ""};
+    const mergedParams = {
+        ...baseParams,
+        ...Object.fromEntries(
+            Object.entries(Params)
+                .filter(([key]) => key in baseParams)
+        )
+    };
+    return mergedParams;
+}
+
+function getck() {
+    const ck = $.getdata(manmanbuy_key);
+    if (!ck) {
+        $.msg($.name, '请先打开【慢慢买】APP', '请确保已成功获取ck');
+        throw new Error(`请先打开【慢慢买】APP,点击我的，获取ck`);
+    }
+    const Params = parseQueryString(ck);
+    if (!Params || !Params.c_mmbDevId) {
+        $.msg($.name, '数据异常', '请联系脚本作者检查ck格式');
+        throw new Error(`请联系脚本作者检查ck格式`);
+    }
+    return int_ck(Params);
+}
+
+async function httpRequest(options) {
+    try {
+        options = options.url ? options : { url: options };
+        const _method = options?._method || ('body' in options ? 'post' : 'get');
+        const _respType = options?._respType || 'body';
+        const _timeout = options?._timeout || 15e3;
+        const _http = [
+            new Promise((_, reject) => setTimeout(() => reject(`⛔️ 请求超时: ${options['url']}`), _timeout)),
+            new Promise((resolve, reject) => {
+                $[_method.toLowerCase()](options, (error, response, data) => {
+                    error && $.log($.toStr(error));
+                    if (_respType !== 'all') {
+                        resolve($.toObj(response?.[_respType], response?.[_respType]));
+                    } else {
+                        resolve(response);
+                    }
+                });
+            })
+        ];
+        return await Promise.race(_http);
+    } catch (err) {
+        $.logErr(err);
+    }
+}
+
+function parseQueryString(queryString) {const jsonObject = {};const pairs = queryString.split('&');pairs.forEach(pair => {const [key, value] = pair.split('=');jsonObject[decodeURIComponent(key)] = decodeURIComponent(value || '');});return jsonObject;}
+function jsonToQueryString(jsonObject) {return Object.keys(jsonObject).map(key => `${encodeURIComponent(key)}=${encodeURIComponent(jsonObject[key])}`).join('&');}
+function jsonToCustomString(jsonObject){return Object.keys(jsonObject).filter(key=>jsonObject[key]!==''&&key.toLowerCase()!=='token').sort().map(key=>`${key.toUpperCase()}${jsonObject[key].toUpperCase()}`).join('');}
+
+function intCryptoJS(){CryptoJS=function(t,r){var n;if("undefined"!=typeof window&&window.crypto&&(n=window.crypto),"undefined"!=typeof self&&self.crypto&&(n=self.crypto),"undefined"!=typeof globalThis&&globalThis.crypto&&(n=globalThis.crypto),!n&&"undefined"!=typeof window&&window.msCrypto&&(n=window.msCrypto),!n&&"undefined"!=typeof global&&global.crypto&&(n=global.crypto),!n&&"function"==typeof require)try{n=require("crypto")}catch(t){}var e=function(){if(n){if("function"==typeof n.getRandomValues)try{return n.getRandomValues(new Uint32Array(1))[0]}catch(t){}if("function"==typeof n.randomBytes)try{return n.randomBytes(4).readInt32LE()}catch(t){}}throw new Error("Native crypto module could not be used to get secure random number.")},i=Object.create||function(){function t(){}return function(r){var n;return t.prototype=r,n=new t,t.prototype=null,n}}(),o={},a=o.lib={},s=a.Base={extend:function(t){var r=i(this);return t&&r.mixIn(t),r.hasOwnProperty("init")&&this.init!==r.init||(r.init=function(){r.$super.init.apply(this,arguments)}),r.init.prototype=r,r.$super=this,r},create:function(){var t=this.extend();return t.init.apply(t,arguments),t},init:function(){},mixIn:function(t){for(var r in t)t.hasOwnProperty(r)&&(this[r]=t[r]);t.hasOwnProperty("toString")&&(this.toString=t.toString)},clone:function(){return this.init.prototype.extend(this)}},c=a.WordArray=s.extend({init:function(t,r){t=this.words=t||[],this.sigBytes=null!=r?r:4*t.length},toString:function(t){return(t||f).stringify(this)},concat:function(t){var r=this.words,n=t.words,e=this.sigBytes,i=t.sigBytes;if(this.clamp(),e%4)for(var o=0;o<i;o++){var a=n[o>>>2]>>>24-o%4*8&255;r[e+o>>>2]|=a<<24-(e+o)%4*8}else for(var s=0;s<i;s+=4)r[e+s>>>2]=n[s>>>2];return this.sigBytes+=i,this},clamp:function(){var r=this.words,n=this.sigBytes;r[n>>>2]&=4294967295<<32-n%4*8,r.length=t.ceil(n/4)},clone:function(){var t=s.clone.call(this);return t.words=this.words.slice(0),t},random:function(r){var n,i=[],o=function(r){r=r;var n=987654321,e=4294967295;return function(){var i=((n=36969*(65535&n)+(n>>16)&e)<<16)+(r=18e3*(65535&r)+(r>>16)&e)&e;return i/=4294967296,(i+=.5)*(t.random()>.5?1:-1)}},a=!1;try{e(),a=!0}catch(t){}for(var s,u=0;u<r;u+=4)a?i.push(e()):(s=987654071*(n=o(4294967296*(s||t.random())))(),i.push(4294967296*n()|0));return new c.init(i,r)}}),u=o.enc={},f=u.Hex={stringify:function(t){for(var r=t.words,n=t.sigBytes,e=[],i=0;i<n;i++){var o=r[i>>>2]>>>24-i%4*8&255;e.push((o>>>4).toString(16)),e.push((15&o).toString(16))}return e.join("")},parse:function(t){for(var r=t.length,n=[],e=0;e<r;e+=2)n[e>>>3]|=parseInt(t.substr(e,2),16)<<24-e%8*4;return new c.init(n,r/2)}},h=u.Latin1={stringify:function(t){for(var r=t.words,n=t.sigBytes,e=[],i=0;i<n;i++){var o=r[i>>>2]>>>24-i%4*8&255;e.push(String.fromCharCode(o))}return e.join("")},parse:function(t){for(var r=t.length,n=[],e=0;e<r;e++)n[e>>>3]|=(255&t.charCodeAt(e))<<24-e%4*8;return new c.init(n,r)}},p=u.Utf8={stringify:function(t){try{return decodeURIComponent(escape(h.stringify(t)))}catch(t){throw new Error("Malformed UTF-8 data")}},parse:function(t){return h.parse(unescape(encodeURIComponent(t)))}},d=a.BufferedBlockAlgorithm=s.extend({reset:function(){this._data=new c.init,this._nDataBytes=0},_append:function(t){"string"==typeof t&&(t=p.parse(t)),this._data.concat(t),this._nDataBytes+=t.sigBytes},_process:function(r){var n,e=this._data,i=e.words,o=e.sigBytes,a=this.blockSize,s=o/(4*a),u=(s=r?t.ceil(s):t.max((0|s)-this._minBufferSize,0))*a,f=t.min(4*u,o);if(u){for(var h=0;h<u;h+=a)this._doProcessBlock(i,h);n=i.splice(0,u),e.sigBytes-=f}return new c.init(n,f)},clone:function(){var t=s.clone.call(this);return t._data=this._data.clone(),t},_minBufferSize:0}),l=(a.Hasher=d.extend({cfg:s.extend(),init:function(t){this.cfg=this.cfg.extend(t),this.reset()},reset:function(){d.reset.call(this),this._doReset()},update:function(t){return this._append(t),this._process(),this},finalize:function(t){return t&&this._append(t),this._doFinalize()},blockSize:16,_createHelper:function(t){return function(r,n){return new t.init(n).finalize(r)}},_createHmacHelper:function(t){return function(r,n){return new l.HMAC.init(t,n).finalize(r)}}}),o.algo={});return o}(Math);!function(t){var r=CryptoJS,n=r.lib,e=n.WordArray,i=n.Hasher,o=r.algo,a=[];!function(){for(var r=0;r<64;r++)a[r]=4294967296*t.abs(t.sin(r+1))|0}();var s=o.MD5=i.extend({_doReset:function(){this._hash=new e.init([1732584193,4023233417,2562383102,271733878])},_doProcessBlock:function(t,r){for(var n=0;n<16;n++){var e=r+n,i=t[e];t[e]=16711935&(i<<8|i>>>24)|4278255360&(i<<24|i>>>8)}var o=this._hash.words,s=t[r+0],p=t[r+1],d=t[r+2],l=t[r+3],y=t[r+4],v=t[r+5],g=t[r+6],w=t[r+7],_=t[r+8],m=t[r+9],B=t[r+10],b=t[r+11],C=t[r+12],S=t[r+13],x=t[r+14],A=t[r+15],H=o[0],z=o[1],M=o[2],D=o[3];z=h(z=h(z=h(z=h(z=f(z=f(z=f(z=f(z=u(z=u(z=u(z=u(z=c(z=c(z=c(z=c(z,M=c(M,D=c(D,H=c(H,z,M,D,s,7,a[0]),z,M,p,12,a[1]),H,z,d,17,a[2]),D,H,l,22,a[3]),M=c(M,D=c(D,H=c(H,z,M,D,y,7,a[4]),z,M,v,12,a[5]),H,z,g,17,a[6]),D,H,w,22,a[7]),M=c(M,D=c(D,H=c(H,z,M,D,_,7,a[8]),z,M,m,12,a[9]),H,z,B,17,a[10]),D,H,b,22,a[11]),M=c(M,D=c(D,H=c(H,z,M,D,C,7,a[12]),z,M,S,12,a[13]),H,z,x,17,a[14]),D,H,A,22,a[15]),M=u(M,D=u(D,H=u(H,z,M,D,p,5,a[16]),z,M,g,9,a[17]),H,z,b,14,a[18]),D,H,s,20,a[19]),M=u(M,D=u(D,H=u(H,z,M,D,v,5,a[20]),z,M,B,9,a[21]),H,z,A,14,a[22]),D,H,y,20,a[23]),M=u(M,D=u(D,H=u(H,z,M,D,m,5,a[24]),z,M,x,9,a[25]),H,z,l,14,a[26]),D,H,_,20,a[27]),M=u(M,D=u(D,H=u(H,z,M,D,S,5,a[28]),z,M,d,9,a[29]),H,z,w,14,a[30]),D,H,C,20,a[31]),M=f(M,D=f(D,H=f(H,z,M,D,v,4,a[32]),z,M,_,11,a[33]),H,z,b,16,a[34]),D,H,x,23,a[35]),M=f(M,D=f(D,H=f(H,z,M,D,p,4,a[36]),z,M,y,11,a[37]),H,z,w,16,a[38]),D,H,B,23,a[39]),M=f(M,D=f(D,H=f(H,z,M,D,S,4,a[40]),z,M,s,11,a[41]),H,z,l,16,a[42]),D,H,g,23,a[43]),M=f(M,D=f(D,H=f(H,z,M,D,m,4,a[44]),z,M,C,11,a[45]),H,z,A,16,a[46]),D,H,d,23,a[47]),M=h(M,D=h(D,H=h(H,z,M,D,s,6,a[48]),z,M,w,10,a[49]),H,z,x,15,a[50]),D,H,v,21,a[51]),M=h(M,D=h(D,H=h(H,z,M,D,C,6,a[52]),z,M,l,10,a[53]),H,z,B,15,a[54]),D,H,p,21,a[55]),M=h(M,D=h(D,H=h(H,z,M,D,_,6,a[56]),z,M,A,10,a[57]),H,z,g,15,a[58]),D,H,S,21,a[59]),M=h(M,D=h(D,H=h(H,z,M,D,y,6,a[60]),z,M,b,10,a[61]),H,z,d,15,a[62]),D,H,m,21,a[63]),o[0]=o[0]+H|0,o[1]=o[1]+z|0,o[2]=o[2]+M|0,o[3]=o[3]+D|0},_doFinalize:function(){var r=this._data,n=r.words,e=8*this._nDataBytes,i=8*r.sigBytes;n[i>>>5]|=128<<24-i%32;var o=t.floor(e/4294967296),a=e;n[15+(i+64>>>9<<4)]=16711935&(o<<8|o>>>24)|4278255360&(o<<24|o>>>8),n[14+(i+64>>>9<<4)]=16711935&(a<<8|a>>>24)|4278255360&(a<<24|a>>>8),r.sigBytes=4*(n.length+1),this._process();for(var s=this._hash,c=s.words,u=0;u<4;u++){var f=c[u];c[u]=16711935&(f<<8|f>>>24)|4278255360&(f<<24|f>>>8)}return s},clone:function(){var t=i.clone.call(this);return t._hash=this._hash.clone(),t}});function c(t,r,n,e,i,o,a){var s=t+(r&n|~r&e)+i+a;return(s<<o|s>>>32-o)+r}function u(t,r,n,e,i,o,a){var s=t+(r&e|n&~e)+i+a;return(s<<o|s>>>32-o)+r}function f(t,r,n,e,i,o,a){var s=t+(r^n^e)+i+a;return(s<<o|s>>>32-o)+r}function h(t,r,n,e,i,o,a){var s=t+(n^(r|~e))+i+a;return(s<<o|s>>>32-o)+r}r.MD5=i._createHelper(s),r.HmacMD5=i._createHmacHelper(s)}(Math),function(){var t=CryptoJS,r=t.lib.WordArray;t.enc.Base64={stringify:function(t){var r=t.words,n=t.sigBytes,e=this._map;t.clamp();for(var i=[],o=0;o<n;o+=3)for(var a=(r[o>>>2]>>>24-o%4*8&255)<<16|(r[o+1>>>2]>>>24-(o+1)%4*8&255)<<8|r[o+2>>>2]>>>24-(o+2)%4*8&255,s=0;s<4&&o+.75*s<n;s++)i.push(e.charAt(a>>>6*(3-s)&63));var c=e.charAt(64);if(c)for(;i.length%4;)i.push(c);return i.join("")},parse:function(t){var n=t.length,e=this._map,i=this._reverseMap;if(!i){i=this._reverseMap=[];for(var o=0;o<e.length;o++)i[e.charCodeAt(o)]=o}var a=e.charAt(64);if(a){var s=t.indexOf(a);-1!==s&&(n=s)}return function(t,n,e){for(var i=[],o=0,a=0;a<n;a++)if(a%4){var s=e[t.charCodeAt(a-1)]<<a%4*2,c=e[t.charCodeAt(a)]>>>6-a%4*2;i[o>>>2]|=(s|c)<<24-o%4*8,o++}return r.create(i,o)}(t,n,i)},_map:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="}}();};function md5(word){return CryptoJS.MD5(word).toString();}
+
+function Env(t,e){class s{constructor(t){this.env=t}send(t,e="GET"){t="string"==typeof t?{url:t}:t;let s=this.get;"POST"===e&&(s=this.post);const i=new Promise(((e,i)=>{s.call(this,t,((t,s,o)=>{t?i(t):e(s)}))}));return t.timeout?((t,e=1e3)=>Promise.race([t,new Promise(((t,s)=>{setTimeout((()=>{s(new Error("请求超时"))}),e)}))]))(i,t.timeout):i}get(t){return this.send.call(this.env,t)}post(t){return this.send.call(this.env,t,"POST")}}return new class{constructor(t,e){this.logLevels={debug:0,info:1,warn:2,error:3},this.logLevelPrefixs={debug:"[DEBUG] ",info:"[INFO] ",warn:"[WARN] ",error:"[ERROR] "},this.logLevel="info",this.name=t,this.http=new s(this),this.data=null,this.dataFile="box.dat",this.logs=[],this.isMute=!1,this.isNeedRewrite=!1,this.logSeparator="\n",this.encoding="utf-8",this.startTime=(new Date).getTime(),Object.assign(this,e),this.log("",`🔔${this.name}, 开始!`)}getEnv(){return"undefined"!=typeof $environment&&$environment["surge-version"]?"Surge":"undefined"!=typeof $environment&&$environment["stash-version"]?"Stash":"undefined"!=typeof module&&module.exports?"Node.js":"undefined"!=typeof $task?"Quantumult X":"undefined"!=typeof $loon?"Loon":"undefined"!=typeof $rocket?"Shadowrocket":void 0}isNode(){return"Node.js"===this.getEnv()}isQuanX(){return"Quantumult X"===this.getEnv()}isSurge(){return"Surge"===this.getEnv()}isLoon(){return"Loon"===this.getEnv()}isShadowrocket(){return"Shadowrocket"===this.getEnv()}isStash(){return"Stash"===this.getEnv()}toObj(t,e=null){try{return JSON.parse(t)}catch{return e}}toStr(t,e=null,...s){try{return JSON.stringify(t,...s)}catch{return e}}getjson(t,e){let s=e;if(this.getdata(t))try{s=JSON.parse(this.getdata(t))}catch{}return s}setjson(t,e){try{return this.setdata(JSON.stringify(t),e)}catch{return!1}}getdata(t){let e=this.getval(t);if(/^@/.test(t)){const[,s,i]=/^@(.*?)\.(.*?)$/.exec(t),o=s?this.getval(s):"";if(o)try{const t=JSON.parse(o);e=t?this.lodash_get(t,i,""):e}catch(t){e=""}}return e}setdata(t,e){let s=!1;if(/^@/.test(e)){const[,i,o]=/^@(.*?)\.(.*?)$/.exec(e),r=this.getval(i),a=i?"null"===r?null:r||"{}":"{}";try{const e=JSON.parse(a);this.lodash_set(e,o,t),s=this.setval(JSON.stringify(e),i)}catch(e){const r={};this.lodash_set(r,o,t),s=this.setval(JSON.stringify(r),i)}}else s=this.setval(t,e);return s}getval(t){switch(this.getEnv()){case"Surge":case"Loon":case"Stash":case"Shadowrocket":return $persistentStore.read(t);case"Quantumult X":return $prefs.valueForKey(t);case"Node.js":return this.data=this.loaddata(),this.data[t];default:return this.data&&this.data[t]||null}}setval(t,e){switch(this.getEnv()){case"Surge":case"Loon":case"Stash":case"Shadowrocket":return $persistentStore.write(t,e);case"Quantumult X":return $prefs.setValueForKey(t,e);case"Node.js":return this.data=this.loaddata(),this.data[e]=t,this.writedata(),!0;default:return this.data&&this.data[e]||null}}get(t,e=(()=>{})){switch(t.headers&&(delete t.headers["Content-Type"],delete t.headers["Content-Length"],delete t.headers["content-type"],delete t.headers["content-length"]),t.params&&(t.url+="?"+this.queryStr(t.params)),void 0===t.followRedirect||t.followRedirect||((this.isSurge()||this.isLoon())&&(t["auto-redirect"]=!1),this.isQuanX()&&(t.opts?t.opts.redirection=!1:t.opts={redirection:!1})),this.getEnv()){case"Surge":case"Loon":case"Stash":case"Shadowrocket":default:this.isSurge()&&this.isNeedRewrite&&(t.headers=t.headers||{},Object.assign(t.headers,{"X-Surge-Skip-Scripting":!1})),$httpClient.get(t,((t,s,i)=>{!t&&s&&(s.body=i,s.statusCode=s.status?s.status:s.statusCode,s.status=s.statusCode),e(t,s,i)}));break;case"Quantumult X":this.isNeedRewrite&&(t.opts=t.opts||{},Object.assign(t.opts,{hints:!1})),$task.fetch(t).then((t=>{const{statusCode:s,statusCode:i,headers:o,body:r,bodyBytes:a}=t;e(null,{status:s,statusCode:i,headers:o,body:r,bodyBytes:a},r,a)}),(t=>e(t&&t.error||"UndefinedError")));break}}post(t,e=(()=>{})){const s=t.method?t.method.toLocaleLowerCase():"post";switch(t.body&&t.headers&&!t.headers["Content-Type"]&&!t.headers["content-type"]&&(t.headers["content-type"]="application/x-www-form-urlencoded"),t.headers&&(delete t.headers["Content-Length"],delete t.headers["content-length"]),void 0===t.followRedirect||t.followRedirect||((this.isSurge()||this.isLoon())&&(t["auto-redirect"]=!1),this.isQuanX()&&(t.opts?t.opts.redirection=!1:t.opts={redirection:!1})),this.getEnv()){case"Surge":case"Loon":case"Stash":case"Shadowrocket":default:this.isSurge()&&this.isNeedRewrite&&(t.headers=t.headers||{},Object.assign(t.headers,{"X-Surge-Skip-Scripting":!1})),$httpClient[s](t,((t,s,i)=>{!t&&s&&(s.body=i,s.statusCode=s.status?s.status:s.statusCode,s.status=s.statusCode),e(t,s,i)}));break;case"Quantumult X":t.method=s,this.isNeedRewrite&&(t.opts=t.opts||{},Object.assign(t.opts,{hints:!1})),$task.fetch(t).then((t=>{const{statusCode:s,statusCode:i,headers:o,body:r,bodyBytes:a}=t;e(null,{status:s,statusCode:i,headers:o,body:r,bodyBytes:a},r,a)}),(t=>e(t&&t.error||"UndefinedError")));break}}time(t,e=null){const s=e?new Date(e):new Date;let i={"M+":s.getMonth()+1,"d+":s.getDate(),"H+":s.getHours(),"m+":s.getMinutes(),"s+":s.getSeconds(),"q+":Math.floor((s.getMonth()+3)/3),S:s.getMilliseconds()};/(y+)/.test(t)&&(t=t.replace(RegExp.$1,(s.getFullYear()+"").substr(4-RegExp.$1.length)));for(let e in i)new RegExp("("+e+")").test(t)&&(t=t.replace(RegExp.$1,1==RegExp.$1.length?i[e]:("00"+i[e]).substr((""+i[e]).length)));return t}queryStr(t){let e="";for(const s in t){let i=t[s];null!=i&&""!==i&&("object"==typeof i&&(i=JSON.stringify(i)),e+=`${s}=${i}&`)}return e=e.substring(0,e.length-1),e}msg(e=t,s="",i="",o={}){const r=t=>{const{$open:e,$copy:s,$media:i,$mediaMime:o}=t;switch(typeof t){case void 0:return t;case"string":switch(this.getEnv()){case"Surge":case"Stash":default:return{url:t};case"Loon":case"Shadowrocket":return t;case"Quantumult X":return{"open-url":t};case"Node.js":return}case"object":switch(this.getEnv()){case"Surge":case"Stash":case"Shadowrocket":default:{const r={};let a=t.openUrl||t.url||t["open-url"]||e;a&&Object.assign(r,{action:"open-url",url:a});let n=t["update-pasteboard"]||t.updatePasteboard||s;if(n&&Object.assign(r,{action:"clipboard",text:n}),i){let t,e,s;if(i.startsWith("http"))t=i;else if(i.startsWith("data:")){const[t]=i.split(";"),[,o]=i.split(",");e=o,s=t.replace("data:","")}else{e=i,s=(t=>{const e={JVBERi0:"application/pdf",R0lGODdh:"image/gif",R0lGODlh:"image/gif",iVBORw0KGgo:"image/png","/9j/":"image/jpg"};for(var s in e)if(0===t.indexOf(s))return e[s];return null})(i)}Object.assign(r,{"media-url":t,"media-base64":e,"media-base64-mime":o??s})}return Object.assign(r,{"auto-dismiss":t["auto-dismiss"],sound:t.sound}),r}case"Loon":{const s={};let o=t.openUrl||t.url||t["open-url"]||e;o&&Object.assign(s,{openUrl:o});let r=t.mediaUrl||t["media-url"];return i?.startsWith("http")&&(r=i),r&&Object.assign(s,{mediaUrl:r}),s}case"Quantumult X":{const o={};let r=t["open-url"]||t.url||t.openUrl||e;r&&Object.assign(o,{"open-url":r});let a=t["media-url"]||t.mediaUrl;i?.startsWith("http")&&(a=i),a&&Object.assign(o,{"media-url":a});let n=t["update-pasteboard"]||t.updatePasteboard||s;return n&&Object.assign(o,{"update-pasteboard":n}),o}case"Node.js":return}default:return}};if(!this.isMute)switch(this.getEnv()){case"Surge":case"Loon":case"Stash":case"Shadowrocket":default:$notification.post(e,s,i,r(o));break;case"Quantumult X":$notify(e,s,i,r(o));break;case"Node.js":break}}log(...t){t.length>0&&(this.logs=[...this.logs,...t]),console.log(t.map((t=>t??String(t))).join(this.logSeparator))}logErr(t,e){switch(this.getEnv()){case"Surge":case"Loon":case"Stash":case"Shadowrocket":case"Quantumult X":default:this.log("",`❗️${this.name}, 错误!`,e,t);break;case"Node.js":this.log("",`❗️${this.name}, 错误!`,e,void 0!==t.message?t.message:t,t.stack);break}}wait(t){return new Promise((e=>setTimeout(e,t)))}done(t={}){const e=((new Date).getTime()-this.startTime)/1e3;switch(this.log("",`🔔${this.name}, 结束! 🕛 ${e} 秒`),this.log(),this.getEnv()){case"Surge":case"Loon":case"Stash":case"Shadowrocket":case"Quantumult X":default:$done(t);break;case"Node.js":process.exit(1)}}}(t,e)}
