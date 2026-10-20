@@ -1,7 +1,7 @@
 /*
 脚本引用 https://raw.githubusercontent.com/githubdulong/Script/master/jd_price.js
 2025-05-15 05:41:24 验证可用版基底
-已扩展：详情页表格嵌入一键监控按钮 + 后台定时巡检破底价通知
+已扩展：详情页表格嵌入一键监控按钮 + 本地瞬时Mock响应 + 后台定时巡检破底价通知
 */
 const path1 = '/product/graphext/';
 const path2 = '/baoliao/center/menu';
@@ -28,7 +28,7 @@ if (url.includes(path2)) {
     $.msg($.name, '获取ck成功🎉', reqbody);
 }
 
-// 场景 3: 按钮点击响应（加入/取消监控）
+// 场景 3: 按钮点击响应（本地瞬时 Mock，不再等待外网）
 if (url.includes(path_toggle)) {
     handleToggle(url);
 }
@@ -83,7 +83,6 @@ async function main() {
     return { body };
 }
 
-// 返回结果检查函数 (原版)
 function checkRes(res, desc = '') {
     if (res.ok !== 1) {
         $.log('慢慢买提示您：' + $.toStr(res));
@@ -92,7 +91,7 @@ function checkRes(res, desc = '') {
     return res;
 }
 
-// 比价html (保留原版样式并在表格标题栏右侧加入监控按钮)
+// 比价 HTML
 function Price_HTML(priceList, skuId, curPrice, isMonitored, recordLowest) {
     const rows = priceList.map(item => {
         let { Name: name, Date: date, Price: price = '', Difference: diff = '' } = item;
@@ -140,12 +139,15 @@ function Price_HTML(priceList, skuId, curPrice, isMonitored, recordLowest) {
                         btn.innerText = '➕ 监控此商品最低价';
                     }
                 })
-                .catch(() => alert('操作超时，请重试'));
+                .catch(err => {
+                    alert('操作异常: ' + (err.message || '网络错误'));
+                    btn.innerText = '重试';
+                });
         }
     </script>`;
 }
 
-// 处理点击添加/移除监控
+// 核心修复：本地双模 Mock，不再触发网络超时
 function handleToggle(toggleUrl) {
     const sku = toggleUrl.match(/sku=(\d+)/)?.[1];
     const price = parseFloat(toggleUrl.match(/price=([0-9.]+)/)?.[1] || "0");
@@ -162,16 +164,26 @@ function handleToggle(toggleUrl) {
     }
 
     $.setjson(records, store_records_key);
-    $done({
-        response: {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: 200, action, lowest: records[sku]?.lowest })
-        }
-    });
+
+    const mockPayload = {
+        status: 200,
+        headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+        },
+        body: JSON.stringify({ code: 200, action, lowest: records[sku]?.lowest })
+    };
+
+    // 兼容 request 阶段 Mock 和 response 阶段修改
+    if (typeof $response !== "undefined") {
+        $done(mockPayload);
+    } else {
+        $done({ response: mockPayload });
+    }
 }
 
-// 定时巡检任务 (仅在低于历史最低价时更新并弹窗)
+// 定时巡检
 async function cronTask() {
     intCryptoJS();
     const records = $.getjson(store_records_key) || {};
@@ -208,7 +220,7 @@ async function cronTask() {
             if (curPrice && curPrice < item.lowest) {
                 const drop = (item.lowest - curPrice).toFixed(2);
                 const oldLowest = item.lowest;
-                item.lowest = curPrice; // 刷新本地记录为最新最低价
+                item.lowest = curPrice;
 
                 $.msg(
                     `🎉 京东破底价: ${skuId}`,
@@ -230,7 +242,6 @@ async function cronTask() {
     $.setjson(records, store_records_key);
 }
 
-// 提交请求 (完全保持原样)
 async function mmbRequest(Params, url) {
     if (!$.manmanbuy) {
         $.manmanbuy = getck();
@@ -301,7 +312,6 @@ function get_priceRemark(jiagequshiyh) {
     return res;
 }
 
-// 提前加载部分ck,避免多次生成 (完全保持原样)
 function int_ck(Params){
     const baseParams = {jsoncallback: "?", c_individ: "", c_appver: "", c_ostype: "", c_osver: "", c_devid: "", c_mmbDevId: "", c_systemDevId: "", c_fixDevId: "", c_devmodel: "", c_brand: "", c_operator: "", c_engine: "", c_session: "", c_ddToken: "", c_ctrl: "", c_win: "", c_dp: "", c_safearea: "", c_firstchannel: "", c_firstquerendate: "", c_fristversion: "", c_channel: "", c_uuid: "", c_ssid: "", c_did: "", c_theme: "", c_jpush: "", c_mmbncid: "", sm_deviceid: ""};
     const mergedParams = {
