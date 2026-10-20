@@ -1,0 +1,17 @@
+#!name = 京东价格监控助手
+#!desc = 详情页一键添加最低价监控，后台定时巡检破底价并推送通知。
+#!author = 小白脸, 精简重构版
+#!tag = 比价, 监控
+
+[Script]
+# 1. 抓取慢慢买 CK（只需首次打开一次“慢慢买” App 即可）
+http-request ^https?:\/\/apapia-sqk-weblogic\.manmanbuy\.com/baoliao\/center\/menu script-path = https://raw.githubusercontent.com/tzlio/scripts/refs/heads/main/Loon/plugin/jd_price/jd_price_monitor.js, requires-body = true, tag = 慢慢买获取CK
+
+# 2. 京东详情页交互（注入监控胶囊 + 处理点击事件）
+http-response ^https:\/\/in\.m\.jd\.com\/(product\/graphext\/\d+\.html|jd_monitor_toggle) script-path = jd_price.js, requires-body = true, max-size = 0, timeout = 30, tag = 京东详情页监控助手
+
+# 3. 定时监控：15分钟巡检一次
+cron "*/15 * * * *" script-path = jd_price.js, timeout = 60, tag = 京东定时查价
+
+[MITM]
+hostname = in.m.jd.com, apapia-sqk-weblogic.manmanbuy.com
