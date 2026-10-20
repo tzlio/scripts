@@ -1,1 +1,377 @@
-const _0x=["manmanbuy_val","JD_LOWEST_PRICE_RECORDS","/baoliao/center/menu","jd_monitor_toggle","/product/graphext/","3E41D1331F5DDAFCD0A38FE2D52FF66F","https://apapia-common.manmanbuy.com/SiteCommand/parse","https://apapia-history-weblogic.manmanbuy.com/basic","https://apapia-history-weblogic.manmanbuy.com/history/v2/getHistoryTrend","https://apapia-history-weblogic.manmanbuy.com/history/priceRemark","openapp.jdmobile://virtual?params={\"category\":\"jump\",\"des\":\"productDetail\",\"skuId\":\"","application/x-www-form-urlencoded;charset=utf-8","Mozilla/5.0 (iPhone; CPU iPhone OS 15_6_1 like Mac OS X) AppleWebKit/605.1.15"];(async()=>{if(typeof $request=="undefined"){await _0xCron();$done();return}const u=$request.url;if(u.includes(_0x[2])){$request.body&&($persistentStore.write($request.body,_0x[0]),$notification.post("京东比价","获取ck成功🎉","已成功保存完整凭据"));$done({});return}if(u.includes(_0x[3])){_0xTog(u);return}if(u.includes(_0x[4])){await _0xInj(u);return}$done({})})();async function _0xCron(){const r=JSON.parse($persistentStore.read(_0x[1])||"{}"),k=Object.keys(r);if(!k.length)return;for(const id of k){try{const p=await _0xP(id),it=r[id];if(p<it.lowest){const d=(it.lowest-p).toFixed(2),old=it.lowest;it.lowest=p;_0xN(`🎉 京东破底价: ${id}`,`现价 ¥${p} (降幅 -¥${d})`,`原低价 ¥${old} ➔ 最新底价 ¥${p}`,id)}await new Promise(r=>setTimeout(r,1500))}catch(e){}}$persistentStore.write(JSON.stringify(r),_0x[1])}function _0xTog(u){const s=u.match(/sku=(\d+)/)?.[1],p=parseFloat(u.match(/price=([0-9.]+)/)?.[1]||"0");let r=JSON.parse($persistentStore.read(_0x[1])||"{}"),a="";if(r[s]){delete r[s];a="removed"}else{r[s]={lowest:p,time:Date.now()};a="added";_0xN("📌 已加入降价监控",`商品 ID: ${s}`,`基准底价: ¥${p}`,s)}$persistentStore.write(JSON.stringify(r),_0x[1]);$done({response:{status:200,headers:{"Content-Type":"application/json"},body:JSON.stringify({code:200,action:a,lowest:r[s]?.lowest})}})}async function _0xInj(u){try{const s=u.match(/product\/graphext\/(\d+)\.html/)?.[1];if(!s)return $done({});const p=await _0xP(s),r=JSON.parse($persistentStore.read(_0x[1])||"{}"),has=!!r[s],low=r[s]?.lowest||p;const h=`<div id="jd-mon-box" style="margin:10px 14px;padding:10px 14px;background:#FFF9F9;border:1px solid #ffd6d6;border-radius:10px;display:flex;justify-content:space-between;align-items:center;font-family:-apple-system,sans-serif;"><div style="font-size:14px;color:#333;">现价: <b style="color:#e61a23;font-size:16px;">¥${p}</b><div style="font-size:11px;color:#888;margin-top:2px;">${has?`监控底价: ¥${low}`:"未加入监控"}</div></div><button id="jd-btn" onclick="t('${s}',${p})" style="background:${has?"#52c41a":"#e61a23"};color:#fff;border:none;padding:6px 14px;border-radius:14px;font-size:12px;font-weight:bold;cursor:pointer;">${has?"✓ 监控中 (点击取消)":"➕ 监控此商品最低价"}</button></div><script>function t(s,p){const b=document.getElementById('jd-btn');b.innerText='提交中...';fetch('https://in.m.jd.com/jd_monitor_toggle?sku='+s+'&price='+p).then(r=>r.json()).then(d=>{if(d.action==='added'){b.style.background='#52c41a';b.innerText='✓ 监控中 (点击取消)'}else{b.style.background='#e61a23';b.innerText='➕ 监控此商品最低价'}}).catch(()=>alert('操作超时'))}<\/script>`;$done({body:$response.body.replace("<body>",`<body>${h}`)})}catch(e){$done({})}}async function _0xP(s){const j=`https://item.jd.com/${s}.html`;let l=j,st=null;try{const ps=await _0xReq({methodName:"commonMethod",searchKey:j,scene:"TrendHomeUnInput",c_ctrl:"Tabs"},_0x[6]);if(ps?.ok===1&&ps?.result?.stteId){l=ps.result.link||j;st=ps.result.stteId}}catch(e){}const bUrl=st?`${_0x[7]}/v2/getItemBasicInfo`:`${_0x[7]}/getItemBasicInfo`;const b=await _0xReq({methodName:"getHistoryInfoJava",searchKey:l,c_ctrl:"Tabs",...(st&&{stteId:st})},bUrl);if(b?.ok!==1||!b?.result?.spbh)throw new Error("E1");const tr=await _0xReq({methodName:"getHistoryTrend2021",url:b.result.url,spbh:b.result.spbh,c_ctrl:"TrendDetailScene",callPos:"trend_detail",currentScene:"TrendDetailRecent",eventName:"查询商品历史价格",pagecFrom:"TrendHomeUnInput",chartStyleTest:"testA"},_0x[8]);if(tr?.ok!==1||!tr?.result?.trend)throw new Error("E2");const rk=await _0xReq({methodName:"priceRemarkJava",jiagequshiyh:tr.result.trend,c_ctrl:"TrendDetailScene"},_0x[9]);if(rk?.ok!==1)throw new Error("E3");const list=rk.remark?.ListPriceDetail||[];const cur=list.find(i=>i.Name==="当前到手价"||i.ShowName?.includes("当前"))||list[0];if(!cur?.Price)throw new Error("E4");return parseFloat(cur.Price)}async function _0xReq(p,u){const raw=$persistentStore.read(_0x[0]);if(!raw)throw new Error("no_ck");const b={};raw.split("&").forEach(x=>{const[k,v]=x.split("=");if(k)b[decodeURIComponent(k)]=decodeURIComponent(v||"")});["c_ctrl","methodName","level","t","token"].forEach(k=>delete b[k]);const q={...b,...p,t:Date.now().toString()};const cStr=Object.keys(q).filter(k=>q[k]!==""&&k.toLowerCase()!=="token").sort().map(k=>`${k.toUpperCase()}${String(q[k]).toUpperCase()}`).join("");q.token=_0xM(encodeURIComponent(_0x[5]+cStr+_0x[5])).toUpperCase();const body=Object.keys(q).map(k=>`${encodeURIComponent(k)}=${encodeURIComponent(q[k])}`).join("&");return new Promise((res,rej)=>{$httpClient.post({url:u,headers:{"Content-Type":_0x[11],"User-Agent":_0x[12]},body},(err,_,d)=>{if(err)return rej(new Error(err));try{res(JSON.parse(d))}catch{res(d)}})})}function _0xN(t,s,b,id){$notification.post(t,s,b,{openUrl:`${_0x[10]}${id}"}`})}function _0xM(t){function n(t,n){return t<<n|t>>>32-n}function r(t,r,e,o,u,c){return(t=t+r+o+c<<u|t+r+o+c>>>32-u)+e}function e(t,e,o,u,c,i,f){return r(e&o|~e&u,t,e,c,i,f)}function o(t,e,o,u,c,i,f){return r(e&u|o&~u,t,e,c,i,f)}function u(t,e,o,u,c,i,f){return r(e^o^u,t,e,c,i,f)}function c(t,e,o,u,c,i,f){return r(o^(e|~u),t,e,c,i,f)}let i=Array(t.length);for(let n=0;n<t.length;n++)i[n>>2]|=(255&t.charCodeAt(n))<<n%4*8;let f=8*t.length;i[f>>5]|=128<<f%32,i[(f+64>>>9<<4)+14]=f;let a=1732584193,h=-271733879,l=-1732584194,p=271733878;for(let t=0;t<i.length;t+=16){let[f,d,s,g]=[a,h,l,p];a=e(a,h,l,p,i[t+0],7,-680876936),p=e(p,a,h,l,i[t+1],12,-389564586),l=e(l,p,a,h,i[t+2],17,606105819),h=e(h,l,p,a,i[t+3],22,-1044525330),a=e(a,h,l,p,i[t+4],7,-176418897),p=e(p,a,h,l,i[t+5],12,1200080426),l=e(l,p,a,h,i[t+6],17,-1473231341),h=e(h,l,p,a,i[t+7],22,-45705983),a=e(a,h,l,p,i[t+8],7,1770035416),p=e(p,a,h,l,i[t+9],12,-1958414417),l=e(l,p,a,h,i[t+10],17,-42063),h=e(h,l,p,a,i[t+11],22,-1990404162),a=e(a,h,l,p,i[t+12],7,1804603682),p=e(p,a,h,l,i[t+13],12,-40341101),l=e(l,p,a,h,i[t+14],17,-1502000000),h=e(h,l,p,a,i[t+15],22,1236535329),a=o(a,h,l,p,i[t+1],5,-165796510),p=o(p,a,h,l,i[t+6],9,-1069501632),l=o(l,p,a,h,i[t+11],14,643717713),h=o(h,l,p,a,i[t+0],20,-373897302),a=o(a,h,l,p,i[t+5],5,-701558691),p=o(p,a,h,l,i[t+10],9,38016083),l=o(l,p,a,h,i[t+15],14,-660478335),h=o(h,l,p,a,i[t+4],20,-405537848),a=o(a,h,l,p,i[t+9],5,568446438),p=o(p,a,h,l,i[t+14],9,-1019803690),l=o(l,p,a,h,i[t+3],14,-187363961),h=o(h,l,p,a,i[t+8],20,1163531501),a=o(a,h,l,p,i[t+13],5,-1444681467),p=o(p,a,h,l,i[t+2],9,-51403784),l=o(l,p,a,h,i[t+7],14,1735328473),h=o(h,l,p,a,i[t+12],20,-1926607734),a=u(a,h,l,p,i[t+5],4,-378558),p=u(p,a,h,l,i[t+8],11,-2022574463),l=u(l,p,a,h,i[t+11],16,1839030562),h=u(h,l,p,a,i[t+14],23,-35309556),a=u(a,h,l,p,i[t+1],4,-1530992060),p=u(p,a,h,l,i[t+4],11,1272893353),l=u(l,p,a,h,i[t+7],16,-155497632),h=u(h,l,p,a,i[t+10],23,-1094730640),a=u(a,h,l,p,i[t+13],4,681279174),p=u(p,a,h,l,i[t+0],11,-358537222),l=u(l,p,a,h,i[t+3],16,-722521979),h=u(h,l,p,a,i[t+6],23,76029189),a=u(a,h,l,p,i[t+9],4,-640364487),p=u(p,a,h,l,i[t+12],11,-421815835),l=u(l,p,a,h,i[t+15],16,530742520),h=u(h,l,p,a,i[t+2],23,-995338651),a=c(a,h,l,p,i[t+0],6,-198630844),p=c(p,a,h,l,i[t+7],10,1126891415),l=c(l,p,a,h,i[t+14],15,-1416354905),h=c(h,l,p,a,i[t+5],21,-57434055),a=c(a,h,l,p,i[t+12],6,1700485571),p=c(p,a,h,l,i[t+3],10,-1894986606),l=c(l,p,a,h,i[t+10],15,-1051523),h=c(h,l,p,a,i[t+1],21,-2054922799),a=c(a,h,l,p,i[t+8],6,1873313359),p=c(p,a,h,l,i[t+15],10,-30611744),l=c(l,p,a,h,i[t+6],15,-1560198380),h=c(h,l,p,a,i[t+13],21,1309151649),a=c(a,h,l,p,i[t+4],6,-145523070),p=c(p,a,h,l,i[t+11],10,-1120210379),l=c(l,p,a,h,i[t+2],15,718787259),h=c(h,l,p,a,i[t+9],21,-343485551),a=a+f|0,h=h+d|0,l=l+s|0,p=p+g|0}return[a,h,l,p].map(t=>(t<0?t+4294967296:t).toString(16).padStart(8,"0").match(/../g).reverse().join("")).join("")}
+/**
+ * 京东比价 + 最低价监控 (还原原版表格 + 嵌入一键监控按钮)
+ */
+
+const CK_KEY = "manmanbuy_val";
+const STORE_KEY = "JD_LOWEST_PRICE_RECORDS";
+
+(async () => {
+  // 1. 定时巡检破底价任务 (Cron)
+  if (typeof $request === "undefined") {
+    await runCronTask();
+    $done();
+    return;
+  }
+
+  const url = $request.url;
+
+  // 2. 抓取慢慢买完整 CK
+  if (url.includes("/baoliao/center/menu")) {
+    if ($request.body) {
+      $persistentStore.write($request.body, CK_KEY);
+      $notification.post("京东比价助手", "获取ck成功🎉", "已成功保存慢慢买完整凭据");
+    }
+    $done({});
+    return;
+  }
+
+  // 3. 点击按钮交互（添加 / 取消监控）
+  if (url.includes("jd_monitor_toggle")) {
+    handleToggleAction(url);
+    return;
+  }
+
+  // 4. 详情页渲染：渲染原版表格 + 注入监控按钮
+  if (url.includes("/product/graphext/")) {
+    await handleDetailPage(url);
+    return;
+  }
+
+  $done({});
+})();
+
+// ===================== 详情页处理 & 表格渲染 =====================
+async function handleDetailPage(url) {
+  const responseBody = $response?.body || "";
+  try {
+    const match = url.match(/product\/graphext\/(\d+)\.html/);
+    if (!match) throw new Error("URL匹配失败");
+    const skuId = match[1];
+
+    // 获取慢慢买比价数据
+    const { list, curPrice } = await getPriceDetail(skuId);
+
+    // 查询当前商品是否在监控列表
+    const records = JSON.parse($persistentStore.read(STORE_KEY) || "{}");
+    const isMonitored = !!records[skuId];
+    const recordLowest = records[skuId]?.lowest || curPrice;
+
+    // 生成原版表格 HTML（并附带监控按钮）
+    const html = Price_HTML(list, skuId, curPrice, isMonitored, recordLowest);
+
+    // 替换并注入页面
+    const body = responseBody.includes("<body>")
+      ? responseBody.replace("<body>", `<body>${html}`)
+      : responseBody.replace(/<body[^>]*>/i, (m) => `${m}\n${html}`);
+
+    $done({ body });
+  } catch (err) {
+    console.log("比价渲染失败: " + err.message);
+    const errHtml = `<div style="max-width:90%;margin:15px auto;padding:12px;background:#fff2f0;color:#d32f2f;border:1px solid #ffccc7;border-radius:10px;font-size:13px;"><strong>慢慢买提示：${err.message}</strong></div>`;
+    const body = responseBody.replace("<body>", `<body>${errHtml}`);
+    $done({ body });
+  }
+}
+
+// 原版比价表格生成函数（加入了一键监控按钮）
+function Price_HTML(priceList, skuId, curPrice, isMonitored, recordLowest) {
+  const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split("T")[0];
+
+  const rows = priceList
+    .map((item) => {
+      let { Name: name, Date: date, Price: price = "", Difference: diff = "" } = item;
+      if (name === "当前到手价") {
+        date = today;
+        diff = "仅供参考";
+      } else {
+        date = date || "-";
+      }
+      let diffClass = "";
+      if (diff.startsWith("↑")) diffClass = "up";
+      else if (diff.startsWith("↓")) diffClass = "down";
+      return `<tr><td>${name}</td><td>${date}</td><td>${price}</td><td class="price-diff ${diffClass}">${diff}</td></tr>`;
+    })
+    .join("");
+
+  return `
+    <div class="price-container">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 4px 10px;">
+        <div>
+          <span style="font-size: 15px; color: #e61a23; font-weight: bold;">📊 历史比价</span>
+          <span style="font-size: 11px; color: #888; margin-left: 6px;">${isMonitored ? `(当前记录底价: ¥${recordLowest})` : ""}</span>
+        </div>
+        <button id="jd-btn" onclick="toggle('${skuId}', ${curPrice})" style="background: ${isMonitored ? "#52c41a" : "#e61a23"}; color: #fff; border: none; padding: 6px 12px; border-radius: 14px; font-size: 12px; font-weight: bold; cursor: pointer;">
+          ${isMonitored ? "✓ 监控中 (点击取消)" : "➕ 监控此商品最低价"}
+        </button>
+      </div>
+      <table class="price-table">
+        <thead><tr><th>类型</th><th>日期</th><th>价格</th><th>差价</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <style>
+      body, table { font-family: "PingFang SC","Microsoft YaHei","Helvetica Neue",Helvetica,Arial,sans-serif; }
+      .price-container { max-width: 800px; margin: 10px auto; padding: 12px; font-size: 13px; font-weight: bold; background: #FFF9F9; color: #333; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+      .price-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 8px; overflow: hidden; }
+      .price-table th { background: #e61a23; color: #fff; padding: 10px; text-align: left; font-weight: bold; }
+      .price-table td { padding: 10px; border-bottom: 1px solid #EEE; font-weight: bold; }
+      .price-diff.up { color: #C91623; font-weight: bold; }
+      .price-diff.down { color: #00aa00; font-weight: bold; }
+    </style>
+    <script>
+      function toggle(s, p) {
+        const btn = document.getElementById('jd-btn');
+        btn.innerText = '提交中...';
+        fetch('https://in.m.jd.com/jd_monitor_toggle?sku=' + s + '&price=' + p)
+          .then(r => r.json())
+          .then(d => {
+            if (d.action === 'added') {
+              btn.style.background = '#52c41a';
+              btn.innerText = '✓ 监控中 (点击取消)';
+            } else {
+              btn.style.background = '#e61a23';
+              btn.innerText = '➕ 监控此商品最低价';
+            }
+          })
+          .catch(() => alert('操作超时，请重试'));
+      }
+    </script>
+  `;
+}
+
+// ===================== 按钮交互处理 =====================
+function handleToggleAction(url) {
+  const sku = url.match(/sku=(\d+)/)?.[1];
+  const price = parseFloat(url.match(/price=([0-9.]+)/)?.[1] || "0");
+
+  let records = JSON.parse($persistentStore.read(STORE_KEY) || "{}");
+  let action = "";
+
+  if (records[sku]) {
+    delete records[sku];
+    action = "removed";
+  } else {
+    records[sku] = { lowest: price, time: Date.now() };
+    action = "added";
+    notify("📌 已加入降价监控", `商品 ID: ${sku}`, `基准底价设为: ¥${price}，创新低时将通知`, sku);
+  }
+
+  $persistentStore.write(JSON.stringify(records), STORE_KEY);
+
+  $done({
+    response: {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: 200, action, lowest: records[sku]?.lowest }),
+    },
+  });
+}
+
+// ===================== 定时巡检任务 (Cron) =====================
+async function runCronTask() {
+  const records = JSON.parse($persistentStore.read(STORE_KEY) || "{}");
+  const skuList = Object.keys(records);
+
+  if (skuList.length === 0) {
+    console.log("当前无监控商品。在商品详情页比价表格上方点击按钮即可添加。");
+    return;
+  }
+
+  console.log(`[定时巡检] 开始检查 ${skuList.length} 件监控商品...`);
+
+  for (const skuId of skuList) {
+    try {
+      const { curPrice } = await getPriceDetail(skuId);
+      const item = records[skuId];
+
+      if (curPrice < item.lowest) {
+        const drop = (item.lowest - curPrice).toFixed(2);
+        const oldLowest = item.lowest;
+        item.lowest = curPrice;
+
+        notify(
+          `🎉 京东破底价: 商品 ${skuId}`,
+          `现价 ¥${curPrice}（降幅 -¥${drop}）`,
+          `原低价 ¥${oldLowest} ➡️ 最新底价 ¥${curPrice}。点击直达购买`,
+          skuId
+        );
+        console.log(`[创新低] ${skuId}: ¥${oldLowest} -> ¥${curPrice}`);
+      } else {
+        console.log(`[未创新低] ${skuId}: 现价 ¥${curPrice}, 最低 ¥${item.lowest}`);
+      }
+
+      await new Promise((r) => setTimeout(r, 1500));
+    } catch (err) {
+      console.log(`[巡检异常] ${skuId}: ${err.message}`);
+    }
+  }
+
+  $persistentStore.write(JSON.stringify(records), STORE_KEY);
+}
+
+// ===================== 慢慢买数据请求链路 =====================
+async function getPriceDetail(skuId) {
+  const jdUrl = `https://item.jd.com/${skuId}.html`;
+
+  // 1. 获取 stteId (V2)
+  let link = jdUrl, stteId = null;
+  try {
+    const parse = await mmbRequest(
+      { methodName: "commonMethod", searchKey: jdUrl, scene: "TrendHomeUnInput", c_ctrl: "Tabs" },
+      "https://apapia-common.manmanbuy.com/SiteCommand/parse"
+    );
+    if (parse?.ok === 1 && parse?.result?.stteId) {
+      link = parse.result.link || jdUrl;
+      stteId = parse.result.stteId;
+    }
+  } catch (e) {}
+
+  // 2. 获取 spbh
+  const base = "https://apapia-history-weblogic.manmanbuy.com/basic";
+  const basicUrl = stteId ? `${base}/v2/getItemBasicInfo` : `${base}/getItemBasicInfo`;
+  const basic = await mmbRequest(
+    { methodName: "getHistoryInfoJava", searchKey: link, c_ctrl: "Tabs", ...(stteId && { stteId }) },
+    basicUrl
+  );
+  if (basic?.ok !== 1 || !basic?.result?.spbh) throw new Error(basic?.msg || "获取商品SPBH失败");
+
+  // 3. 获取价格趋势
+  const trend = await mmbRequest(
+    {
+      methodName: "getHistoryTrend2021",
+      url: basic.result.url,
+      spbh: basic.result.spbh,
+      c_ctrl: "TrendDetailScene",
+      callPos: "trend_detail",
+      currentScene: "TrendDetailRecent",
+      eventName: "查询商品历史价格",
+      pagecFrom: "TrendHomeUnInput",
+      chartStyleTest: "testA",
+    },
+    "https://apapia-history-weblogic.manmanbuy.com/history/v2/getHistoryTrend"
+  );
+  if (trend?.ok !== 1 || !trend?.result?.trend) throw new Error(trend?.msg || "获取价格趋势失败");
+
+  // 4. 价格备注
+  const remark = await mmbRequest(
+    { methodName: "priceRemarkJava", jiagequshiyh: trend.result.trend, c_ctrl: "TrendDetailScene" },
+    "https://apapia-history-weblogic.manmanbuy.com/history/priceRemark"
+  );
+  if (remark?.ok !== 1) throw new Error(remark?.msg || "获取价格明细失败");
+
+  const ListPriceDetail = remark.remark?.ListPriceDetail || [];
+  const exclude = new Set(["当前到手价", "历史最低价", "618价格", "双11价格", "30天最低价", "60天最低价", "180天最低价"]);
+  const list = ListPriceDetail.filter((i) => exclude.has(i.Name));
+
+  const curItem = ListPriceDetail.find((i) => i.Name === "当前到手价" || i.ShowName?.includes("当前")) || list[0];
+  const curPrice = parseFloat(curItem?.Price || "0");
+
+  return { list, curPrice };
+}
+
+// 封装发送请求
+async function mmbRequest(params, url) {
+  const rawBody = $persistentStore.read(CK_KEY);
+  if (!rawBody) throw new Error("请先打开【慢慢买】APP，点击【我的】获取CK");
+
+  const baseParams = {};
+  rawBody.split("&").forEach((pair) => {
+    const [k, v] = pair.split("=");
+    if (k) baseParams[decodeURIComponent(k)] = decodeURIComponent(v || "");
+  });
+  ["c_ctrl", "methodName", "level", "t", "token"].forEach((k) => delete baseParams[k]);
+
+  const requestBody = { ...baseParams, ...params, t: Date.now().toString() };
+  const SECRET_KEY = "3E41D1331F5DDAFCD0A38FE2D52FF66F";
+
+  const customStr = Object.keys(requestBody)
+    .filter((k) => requestBody[k] !== "" && k.toLowerCase() !== "token")
+    .sort()
+    .map((k) => `${k.toUpperCase()}${String(requestBody[k]).toUpperCase()}`)
+    .join("");
+
+  requestBody.token = md5(encodeURIComponent(SECRET_KEY + customStr + SECRET_KEY)).toUpperCase();
+
+  const body = Object.keys(requestBody)
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(requestBody[k])}`)
+    .join("&");
+
+  return new Promise((resolve, reject) => {
+    $httpClient.post(
+      {
+        url,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_6_1 like Mac OS X) AppleWebKit/605.1.15",
+        },
+        body,
+      },
+      (err, resp, data) => {
+        if (err) return reject(new Error(err));
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve(data);
+        }
+      }
+    );
+  });
+}
+
+function notify(title, subtitle, body, skuId) {
+  const jumpUrl = `openapp.jdmobile://virtual?params={"category":"jump","des":"productDetail","skuId":"${skuId}"}`;
+  $notification.post(title, subtitle, body, { openUrl: jumpUrl });
+}
+
+// 极简 MD5
+function md5(string) {
+  function R(A, B) { return (A << B) | (A >>> (32 - B)); }
+  function C(q, a, b, x, s, t) { return ((q = q + a + x + t) << s | q >>> (32 - s)) + b; }
+  function F(a, b, c, d, x, s, t) { return C((b & c) | (~b & d), a, b, x, s, t); }
+  function G(a, b, c, d, x, s, t) { return C((b & d) | (c & ~d), a, b, x, s, t); }
+  function H(a, b, c, d, x, s, t) { return C(b ^ c ^ d, a, b, x, s, t); }
+  function I(a, b, c, d, x, s, t) { return C(c ^ (b | ~d), a, b, x, s, t); }
+  let x = Array(string.length);
+  for (let i = 0; i < string.length; i++) x[i >> 2] |= (string.charCodeAt(i) & 255) << ((i % 4) * 8);
+  let l = string.length * 8;
+  x[l >> 5] |= 128 << (l % 32);
+  x[(((l + 64) >>> 9) << 4) + 14] = l;
+  let a = 1732584193, b = -271733879, c = -1732584194, d = 271733878;
+  for (let i = 0; i < x.length; i += 16) {
+    let [A, B, C, D] = [a, b, c, d];
+    a = F(a, b, c, d, x[i + 0], 7, -680876936); d = F(d, a, b, c, x[i + 1], 12, -389564586);
+    c = F(c, d, a, b, x[i + 2], 17, 606105819); b = F(b, c, d, a, x[i + 3], 22, -1044525330);
+    a = F(a, b, c, d, x[i + 4], 7, -176418897); d = F(d, a, b, c, x[i + 5], 12, 1200080426);
+    c = F(c, d, a, b, x[i + 6], 17, -1473231341); b = F(b, c, d, a, x[i + 7], 22, -45705983);
+    a = F(a, b, c, d, x[i + 8], 7, 1770035416); d = F(d, a, b, c, x[i + 9], 12, -1958414417);
+    c = F(c, d, a, b, x[i + 10], 17, -42063); b = F(b, c, d, a, x[i + 11], 22, -1990404162);
+    a = F(a, b, c, d, x[i + 12], 7, 1804603682); d = F(d, a, b, c, x[i + 13], 12, -40341101);
+    c = F(c, d, a, b, x[i + 14], 17, -1502000000); b = F(b, c, d, a, x[i + 15], 22, 1236535329);
+    a = G(a, b, c, d, x[i + 1], 5, -165796510); d = G(d, a, b, c, x[i + 6], 9, -1069501632);
+    c = G(c, d, a, b, x[i + 11], 14, 643717713); b = G(b, c, d, a, x[i + 0], 20, -373897302);
+    a = G(a, b, c, d, x[i + 5], 5, -701558691); d = G(d, a, b, c, x[i + 10], 9, 38016083);
+    c = G(c, d, a, b, x[i + 15], 14, -660478335); b = G(b, c, d, a, x[i + 4], 20, -405537848);
+    a = G(a, b, c, d, x[i + 9], 5, 568446438); d = G(d, a, b, c, x[i + 14], 9, -1019803690);
+    c = G(c, d, a, b, x[i + 3], 14, -187363961); b = G(b, c, d, a, x[i + 8], 20, 1163531501);
+    a = G(a, b, c, d, x[i + 13], 5, -1444681467); d = G(d, a, b, c, x[i + 2], 9, -51403784);
+    c = G(c, d, a, b, x[i + 7], 14, 1735328473); b = G(b, c, d, a, x[i + 12], 20, -1926607734);
+    a = H(a, b, c, d, x[i + 5], 4, -378558); d = H(d, a, b, c, x[i + 8], 11, -2022574463);
+    c = H(c, d, a, b, x[i + 11], 16, 1839030562); b = H(b, c, d, a, x[i + 14], 23, -35309556);
+    a = H(a, b, c, d, x[i + 1], 4, -1530992060); d = H(d, a, b, c, x[i + 4], 11, 1272893353);
+    c = H(c, d, a, b, x[i + 7], 16, -155497632); b = H(b, c, d, a, x[i + 10], 23, -1094730640);
+    a = H(a, b, c, d, x[i + 13], 4, 681279174); d = H(d, a, b, c, x[i + 0], 11, -358537222);
+    c = H(c, d, a, b, x[i + 3], 16, -722521979); b = H(b, c, d, a, x[i + 6], 23, 76029189);
+    a = H(a, b, c, d, x[i + 9], 4, -640364487); d = H(d, a, b, c, x[i + 12], 11, -421815835);
+    c = H(c, d, a, b, x[i + 15], 16, 530742520); b = H(b, c, d, a, x[i + 2], 23, -995338651);
+    a = I(a, b, c, d, x[i + 0], 6, -198630844); d = I(d, a, b, c, x[i + 7], 10, 1126891415);
+    c = I(c, d, a, b, x[i + 14], 15, -1416354905); b = I(d, a, b, c, x[i + 5], 21, -57434055);
+    a = I(a, b, c, d, x[i + 12], 6, 1700485571); d = I(d, a, b, c, x[i + 3], 10, -1894986606);
+    c = I(c, d, a, b, x[i + 10], 15, -1051523); b = I(b, c, d, a, x[i + 1], 21, -2054922799);
+    a = I(a, b, c, d, x[i + 8], 6, 1873313359); d = I(d, a, b, c, x[i + 15], 10, -30611744);
+    c = I(c, d, a, b, x[i + 6], 15, -1560198380); b = I(b, c, d, a, x[i + 13], 21, 1309151649);
+    a = I(a, b, c, d, x[i + 4], 6, -145523070); d = I(d, a, b, c, x[i + 11], 10, -1120210379);
+    c = I(c, d, a, b, x[i + 2], 15, 718787259); b = I(b, c, d, a, x[i + 9], 21, -343485551);
+    a = (a + A) | 0; b = (b + B) | 0; c = (c + C) | 0; d = (d + D) | 0;
+  }
+  return [a, b, c, d].map((n) => (n < 0 ? n + 4294967296 : n).toString(16).padStart(8, "0").match(/../g).reverse().join("")).join("");
+}
